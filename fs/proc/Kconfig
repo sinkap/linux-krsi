@@ -107,3 +107,11 @@ config PROC_PID_ARCH_STATUS
 config PROC_CPU_RESCTRL
 	def_bool n
 	depends on PROC_FS
+
+config PROC_SELF_MEM_READONLY
+	bool "Force /proc/<pid>/mem paths to be read-only"
+	default y
+	help
+	  When enabled, attempts to open /proc/self/mem for write access
+	  will always fail.  Write access to this file allows bypassing
+	  of memory map permissions (such as modifying read-only code).
