@@ -68,6 +68,7 @@ LIBBPF_0.0.1 {
 		bpf_prog_test_run_xattr;
 		bpf_program__fd;
 		bpf_program__is_kprobe;
+		bpf_program__is_krsi;
 		bpf_program__is_perf_event;
 		bpf_program__is_raw_tracepoint;
 		bpf_program__is_sched_act;
@@ -85,6 +86,7 @@ LIBBPF_0.0.1 {
 		bpf_program__set_expected_attach_type;
 		bpf_program__set_ifindex;
 		bpf_program__set_kprobe;
+		bpf_program__set_krsi;
 		bpf_program__set_perf_event;
 		bpf_program__set_prep;
 		bpf_program__set_priv;
