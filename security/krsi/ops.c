@@ -111,6 +111,26 @@ static bool krsi_prog_is_valid_access(int off, int size,
 	return false;
 }
 
+BPF_CALL_5(krsi_event_output, void *, log,
+	   struct bpf_map *, map, u64, flags, void *, data, u64, size)
+{
+	if (unlikely(flags & ~(BPF_F_INDEX_MASK)))
+		return -EINVAL;
+
+	return bpf_event_output(map, flags, data, size, NULL, 0, NULL);
+}
+
+static const struct bpf_func_proto krsi_event_output_proto =  {
+	.func		= krsi_event_output,
+	.gpl_only       = true,
+	.ret_type       = RET_INTEGER,
+	.arg1_type      = ARG_PTR_TO_CTX,
+	.arg2_type      = ARG_CONST_MAP_PTR,
+	.arg3_type      = ARG_ANYTHING,
+	.arg4_type      = ARG_PTR_TO_MEM,
+	.arg5_type      = ARG_CONST_SIZE_OR_ZERO,
+};
+
 static const struct bpf_func_proto *krsi_prog_func_proto(enum bpf_func_id
 							 func_id,
 							 const struct bpf_prog
@@ -121,6 +141,8 @@ static const struct bpf_func_proto *krsi_prog_func_proto(enum bpf_func_id
 		return &bpf_map_lookup_elem_proto;
 	case BPF_FUNC_get_current_pid_tgid:
 		return &bpf_get_current_pid_tgid_proto;
+	case BPF_FUNC_perf_event_output:
+		return &krsi_event_output_proto;
 	default:
 		return NULL;
 	}
