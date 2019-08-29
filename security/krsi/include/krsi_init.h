@@ -31,6 +31,8 @@ struct krsi_ctx {
 	};
 };
 
+typedef int (*krsi_prog_attach_t) (struct bpf_prog_array *);
+
 /*
  * The LSM creates one file per hook.
  *
@@ -61,6 +63,11 @@ struct krsi_hook {
 	 * The eBPF programs that are attached to this hook.
 	 */
 	struct bpf_prog_array __rcu	*progs;
+	/*
+	 * The attach callback is called before a new program is attached
+	 * to the hook and is passed the updated bpf_prog_array as an argument.
+	 */
+	krsi_prog_attach_t attach_callback;
 };
 
 extern struct krsi_hook krsi_hooks_list[];

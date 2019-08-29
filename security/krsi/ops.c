@@ -139,6 +139,14 @@ int krsi_prog_attach(const union bpf_attr *attr, struct bpf_prog *prog)
 		goto unlock;
 	}
 
+	if (h->attach_callback) {
+		ret = h->attach_callback(new_array);
+		if (ret < 0) {
+			bpf_prog_array_free(new_array);
+			goto unlock;
+		}
+	}
+
 	rcu_assign_pointer(h->progs, new_array);
 	bpf_prog_array_free(old_array);
 
@@ -278,7 +286,7 @@ BPF_CALL_5(krsi_get_env_var, struct krsi_ctx *, ctx, char *, name, u32, n_size,
 	return get_env_var(ctx, name, dest, n_size, size);
 }
 
-static const struct bpf_func_proto krsi_get_env_var_proto = {
+const struct bpf_func_proto krsi_get_env_var_proto = {
 	.func = krsi_get_env_var,
 	.gpl_only = true,
 	.ret_type = RET_INTEGER,
