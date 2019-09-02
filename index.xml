@@ -2,11 +2,11 @@
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
   <channel>
     <title>Intro on KRSI</title>
-    <link>https://example.com/</link>
+    <link>https://kpsingh.ch/linux-krsi/</link>
     <description>Recent content in Intro on KRSI</description>
     <generator>Hugo -- gohugo.io</generator>
     
-	<atom:link href="https://example.com/index.xml" rel="self" type="application/rss+xml" />
+	<atom:link href="https://kpsingh.ch/linux-krsi/index.xml" rel="self" type="application/rss+xml" />
     
     
   </channel>
