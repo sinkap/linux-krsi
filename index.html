@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+	<meta name="generator" content="Hugo 0.57.2" />
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Intro | KRSI</title>
+
+
+<link rel="stylesheet" href="/book.min.6c7317d2e8552a0ac3ea8fd4ba500c3dfb1cc9c74e7afd73eee6d729751fad30.css" integrity="sha256-bHMX0uhVKgrD6o/UulAMPfscycdOev1z7ubXKXUfrTA=">
+
+
+<script defer src="/search.min.902d293534f4a1e9cf4c8491eefece6b5b9fe92dbee98b61002c0ff7debc481f.js" integrity="sha256-kC0pNTT0oenPTISR7v7Oa1uf6S2&#43;6YthACwP9968SB8="></script>
+
+
+
+<link rel="icon" href="/favicon.png" type="image/x-icon">
+
+
+<link rel="alternate" type="application/rss+xml" href="https://example.com/index.xml" title="KRSI" />
+<!--
+Made with Book Theme
+https://github.com/alex-shpak/hugo-book
+-->
+
+  
+</head>
+
+<body>
+  <input type="checkbox" class="hidden" id="menu-control" />
+  <main class="flex container">
+
+    <aside class="book-menu fixed">
+      <nav>
+<h2 class="book-brand">
+  <a href="https://example.com/">KRSI</a>
+</h2>
+
+
+<div class="book-search">
+  <input type="text" placeholder="Search" id="book-search-input" maxlength="64" readonly />
+  <div class="book-search-spinner spinner hidden"></div>
+  <ul id="book-search-results"></ul>
+</div>
+
+
+
+
+
+    
+  
+  
+  
+    
+    
+  
+
+  <style>
+  nav ul a[href="https\3a\2f\2f example.com\2f "] {
+      color: #004ed0;
+  }
+  </style>
+
+
+
+
+
+
+
+
+</nav>
+
+
+<script>
+(function() {
+  var menu = document.querySelector("aside.book-menu nav");
+  addEventListener("beforeunload", function(event) {
+    localStorage.setItem("menu.scrollTop", menu.scrollTop);
+  });
+  menu.scrollTop = localStorage.getItem("menu.scrollTop");
+})();
+</script>
+
+    </aside>
+
+    <div class="book-page">
+      <header class="flex align-center justify-between book-header">
+  <label for="menu-control">
+    <img src="/svg/menu.svg" alt="Menu" />
+  </label>
+  <strong>Intro</strong>
+</header>
+
+      
+<article class="markdown">
+
+<h1 id="kernel-runtime-security-instrumentation">Kernel Runtime Security Instrumentation</h1>
+
+<h2 id="motivation">Motivation</h2>
+
+<p>Signaling and mitigation are two key aspects of security which go hand-in-hand.
+Signals provide the necessary context to narrow down a malicious actor and are
+key to creating effective MAC policies to mitigate/prevent the malicious actor.</p>
+
+<p>One can obtain signals from the kernel by using the audit infrastructure.
+System-wide MAC is done separately as a part of the LSMs (eg. SELinux,
+AppArmor).</p>
+
+<p>Augmenting the signal information provided by audit requires kernel changes to
+audit, it&rsquo;s policy language and user-space components. Furthermore, building a
+MAC policy based on the newly added signal requires changes to various LSMs and
+their own respective policy languages.</p>
+
+<p>KRSI attempts to solve this problem by providing a common policy API in the form of security focussed eBPF helpers and a common surface for creating dynamic (not requiring re-compilation of the kernel) MAC and Audit policies by attaching eBPF programs to the various LSM hooks.</p>
+
+<h1 id="why-an-lsm">Why an LSM?</h1>
+
+<p>Linux Security Modules target security behaviours rather than the API. For
+example, it&rsquo;s easy to miss out a newly added system call for executing processes (eg. execve, execveat etc.) while the LSM framework ensures that all process executions trigger the relevant hooks irrespective of how the process was executed.</p>
+
+<p>Allowing users to attach eBPF programs to LSM hooks also benefits the LSM
+eco-system by enabling feedback from the security community about the kind of
+behaviours that the LSM should be targeting.</p>
+
+<h1 id="how-does-it-work">How does it work?</h1>
+
+<h2 id="securityfs-interface">SecurityFS Interface</h2>
+
+<p>KRSI hooks create a file in securityfs to which eBPF programs can be attached.
+This file maps to a single LSM hook but adds a layer of indirection thus
+shielding the user-space from any changes to the underlying hook. This includes
+changes like renaming of the underlying hook or replacing the hook with another
+that maps better to the security behaviour represented.</p>
+
+<p>For Example:</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-C" data-lang="C"><span style="color:#f92672">/</span>sys<span style="color:#f92672">/</span>kernel<span style="color:#f92672">/</span>security<span style="color:#f92672">/</span>krsi<span style="color:#f92672">/</span>process_execution <span style="color:#f92672">-&gt;</span> bprm_check_security</code></pre></div>
+<h2 id="ebpf-program-helpers">eBPF Program / Helpers</h2>
+
+<p>In order to keep things simple for the user, KRSI intends to provide one eBPF
+program type. Since, there is only one type of context for a given eBPF program
+type, the members of the KRSI context are selectively populated depending on the hook.</p>
+
+<p>KRSI is conservative about the access into the context and expects users to use
+the helpers as an API for getting the required information. This helps limit the internals of the LSM exposed to the user and maintain backward compatibility. It also allows the maintainers to update the structure of the context without worrying about breaking user-space.</p>
+
+<p>The intention is to keep the helpers precise and not depend on kernel headers or internals strengthening the backward compatibility and usability across a large and diverse fleet.</p>
+
+<p>Precise helpers also help in tackling seemingly intractable problems. For
+example, a helper to dump all environment variables is hard because the
+environment variables can be 32 pages long. While a helper to only extract
+certain relevant environment variables (e.g. <code>LD_PRELOAD</code>, <code>HISTFILESIZE</code>) helps in building a more reliable and precise signal with lower overhead.</p>
+
+<h2 id="attachment">Attachment</h2>
+
+<p>A privileged (<code>CAP_SYS_ADMIN</code> for loading / attaching eBPF programs) user-space
+program opens the securityfs file and the eBPF program (<code>BPF_PROG_LOAD</code>) and
+attaches (<code>BPF_PROG_ATTACH</code>) the eBPF program to the hook.</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-C" data-lang="C">hook_fd <span style="color:#f92672">=</span> open(<span style="color:#e6db74">&#34;/sys/kernel/security/krsi/process_execution&#34;</span>, O_RDWR)
+prog_fd <span style="color:#f92672">=</span> bpf(BPF_PROG_LOAD, ...) 
+bpf(BPF_PROG_ATTACH, hook_fd, prog_fd)</code></pre></div>
+<p>There can be more than one program attached to a hook and attaching a program
+with the same name replaces the existing program. The user can see the programs
+attached to the hook as follows:</p>
+<div class="highlight"><pre style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4"><code class="language-bash" data-lang="bash">cat /sys/kernel/security/krsi/process_execution
+env_dumper
+my_auditor</code></pre></div>
+<h2 id="audit-mac-policy">Audit / MAC Policy</h2>
+
+<p>A privileged user-space program (<code>CAP_MAC_ADMIN</code> for modifying MAC policies)
+communicates the policy to the KRSI eBPF programs using eBPF maps (of course,
+it&rsquo;s also possible to embed the policy in the eBPF program).</p>
+
+<p>The audit logs are written using a format chosen by the eBPF program to the perf events buffer (using <code>bpf_perf_event_output</code>) and can be further processed in user-space.</p>
+
+<p>If any of the eBPF programs return an error (<code>-ENOPERM</code>) the action represented by the hook is denied.</p>
+
+<h2 id="current-status">Current Status</h2>
+
+<p>The patch series provides a proto-type implementation with a few helpers and a
+sample program (<a href="https://raw.githubusercontent.com/sinkap/linux-krsi/master/samples/bpf/krsi_kern.c"><code>samples/bpf/krsi_kern.c</code></a>) that hooks into process execution and logs specific environment variables to the perf events buffer.</p>
+
+<p>The user-space program (<a href="https://raw.githubusercontent.com/sinkap/linux-krsi/master/samples/bpf/krsi_user.c"><code>samples/bpf/krsi_user.c</code></a>) loads the eBPF program,
+configures the environment variable that needs to be audited and listens for perf events.</p>
+</article>
+
+      
+
+      
+    </div>
+
+    
+  
+
+  <aside class="book-toc level-3 fixed">
+    <nav id="TableOfContents">
+<ul>
+<li><a href="#kernel-runtime-security-instrumentation">Kernel Runtime Security Instrumentation</a>
+<ul>
+<li><a href="#motivation">Motivation</a></li>
+</ul></li>
+<li><a href="#why-an-lsm">Why an LSM?</a></li>
+<li><a href="#how-does-it-work">How does it work?</a>
+<ul>
+<li><a href="#securityfs-interface">SecurityFS Interface</a></li>
+<li><a href="#ebpf-program-helpers">eBPF Program / Helpers</a></li>
+<li><a href="#attachment">Attachment</a></li>
+<li><a href="#audit-mac-policy">Audit / MAC Policy</a></li>
+<li><a href="#current-status">Current Status</a></li>
+</ul></li>
+</ul>
+</nav>
+  </aside>
+
+
+
+  </main>
+
+  
+  
+</body>
+
+</html>
