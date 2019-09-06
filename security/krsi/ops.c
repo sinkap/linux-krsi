@@ -6,6 +6,8 @@
 #include <linux/bpf.h>
 #include <linux/security.h>
 #include <linux/krsi.h>
+#include <linux/binfmts.h>
+#include <linux/highmem.h>
 
 #include "krsi_init.h"
 #include "krsi_fs.h"
@@ -162,6 +164,131 @@ static bool krsi_prog_is_valid_access(int off, int size,
 	return false;
 }
 
+static char *array_next_entry(char *array, unsigned long *offset,
+			      unsigned long end)
+{
+	char *entry;
+	unsigned long current_offset = *offset;
+
+	if (current_offset >= end)
+		return NULL;
+
+	/*
+	 * iterate on the array till the null byte is encountered
+	 * and check for any overflows.
+	 */
+	entry = array + current_offset;
+	while (array[current_offset]) {
+		if (unlikely(++current_offset >= end))
+			return NULL;
+	}
+
+	/*
+	 * Point the offset to the next element in the array.
+	 */
+	*offset = current_offset + 1;
+
+	return entry;
+}
+
+static u64 get_env_var(struct krsi_ctx *ctx, char *name, char *dest,
+		u32 n_size, u32 size)
+{
+	s32 ret = 0;
+	u32 num_vars = 0;
+	int i, name_len;
+	struct linux_binprm *bprm = ctx->bprm_ctx.bprm;
+	int argc = bprm->argc;
+	int envc = bprm->envc;
+	unsigned long end = ctx->bprm_ctx.max_arg_offset;
+	unsigned long offset = bprm->p % PAGE_SIZE;
+	char *buf = ctx->bprm_ctx.arg_pages;
+	char *curr_dest = dest;
+	char *entry;
+
+	if (unlikely(!buf))
+		return -ENOMEM;
+
+	for (i = 0; i < argc; i++) {
+		entry = array_next_entry(buf, &offset, end);
+		if (!entry)
+			return 0;
+	}
+
+	name_len = strlen(name);
+	for (i = 0; i < envc; i++) {
+		entry = array_next_entry(buf, &offset, end);
+		if (!entry)
+			return 0;
+
+		if (!strncmp(entry, name, name_len)) {
+			num_vars++;
+
+			/*
+			 * There is no need to do further copying
+			 * if the buffer is already full. Just count how many
+			 * times the environment variable is set.
+			 */
+			if (ret == -E2BIG)
+				continue;
+
+			if (entry[name_len] != '=')
+				continue;
+
+			/*
+			 * Move the buf pointer by name_len + 1
+			 * (for the "=" sign)
+			 */
+			entry += name_len + 1;
+			ret = strlcpy(curr_dest, entry, size);
+
+			if (ret >= size) {
+				ret = -E2BIG;
+				continue;
+			}
+
+			/*
+			 * strlcpy just returns the length of the string copied.
+			 * The remaining space needs to account for the added
+			 * null character.
+			 */
+			curr_dest += ret + 1;
+			size -= ret + 1;
+			/*
+			 * Update ret to be the current number of bytes written
+			 * to the destination
+			 */
+			ret = curr_dest - dest;
+		}
+	}
+
+	return (u64) num_vars << 32 | (u32) ret;
+}
+
+BPF_CALL_5(krsi_get_env_var, struct krsi_ctx *, ctx, char *, name, u32, n_size,
+	  char *, dest, u32, size)
+{
+	char *name_end;
+
+	name_end = memchr(name, '\0', n_size);
+	if (!name_end)
+		return -EINVAL;
+
+	memset(dest, 0, size);
+	return get_env_var(ctx, name, dest, n_size, size);
+}
+
+static const struct bpf_func_proto krsi_get_env_var_proto = {
+	.func = krsi_get_env_var,
+	.gpl_only = true,
+	.ret_type = RET_INTEGER,
+	.arg1_type = ARG_PTR_TO_CTX,
+	.arg2_type = ARG_PTR_TO_MEM,
+	.arg3_type = ARG_CONST_SIZE_OR_ZERO,
+	.arg4_type = ARG_PTR_TO_UNINIT_MEM,
+	.arg5_type = ARG_CONST_SIZE_OR_ZERO,
+};
+
 BPF_CALL_5(krsi_event_output, void *, log,
 	   struct bpf_map *, map, u64, flags, void *, data, u64, size)
 {
@@ -192,6 +319,8 @@ static const struct bpf_func_proto *krsi_prog_func_proto(enum bpf_func_id
 		return &bpf_map_lookup_elem_proto;
 	case BPF_FUNC_get_current_pid_tgid:
 		return &bpf_get_current_pid_tgid_proto;
+	case BPF_FUNC_krsi_get_env_var:
+		return &krsi_get_env_var_proto;
 	case BPF_FUNC_perf_event_output:
 		return &krsi_event_output_proto;
 	default:
