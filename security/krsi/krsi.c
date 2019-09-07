@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0
 
 #include <linux/lsm_hooks.h>
+#include <linux/filter.h>
+#include <linux/bpf.h>
+#include <linux/binfmts.h>
 
 #include "krsi_init.h"
 
@@ -16,7 +19,15 @@ struct krsi_hook krsi_hooks_list[] = {
 
 static int krsi_process_execution(struct linux_binprm *bprm)
 {
-	return 0;
+	int ret;
+	struct krsi_ctx ctx;
+
+	ctx.bprm_ctx = (struct krsi_bprm_ctx) {
+		.bprm = bprm,
+	};
+
+	ret = krsi_run_progs(PROCESS_EXECUTION, &ctx);
+	return ret;
 }
 
 static struct security_hook_list krsi_hooks[] __lsm_ro_after_init = {
