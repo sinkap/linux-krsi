@@ -9002,6 +9002,11 @@ F:	include/linux/kprobes.h
 F:	include/asm-generic/kprobes.h
 F:	kernel/kprobes.c
 
+KRSI SECURITY MODULE
+M:	KP Singh <kpsingh@chromium.org>
+S:	Supported
+F:	security/krsi/
+
 KS0108 LCD CONTROLLER DRIVER
 M:	Miguel Ojeda Sandonis <miguel.ojeda.sandonis@gmail.com>
 S:	Maintained
