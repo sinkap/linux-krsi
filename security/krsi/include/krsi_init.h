@@ -16,6 +16,9 @@ extern int krsi_fs_initialized;
 
 struct krsi_bprm_ctx {
 	struct linux_binprm *bprm;
+	char *arg_pages;
+	unsigned long num_arg_pages;
+	unsigned long max_arg_offset;
 };
 
 /*
