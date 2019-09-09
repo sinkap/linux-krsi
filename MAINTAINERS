@@ -9005,6 +9005,9 @@ F:	kernel/kprobes.c
 KRSI SECURITY MODULE
 M:	KP Singh <kpsingh@chromium.org>
 S:	Supported
+F:	samples/bpf/krsi_helpers.h
+F:	samples/bpf/krsi_kern.c
+F:	samples/bpf/krsi_user.c
 F:	security/krsi/
 
 KS0108 LCD CONTROLLER DRIVER
