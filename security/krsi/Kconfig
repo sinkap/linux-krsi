@@ -1,0 +1,22 @@
+config SECURITY_KRSI
+	bool "Runtime Security Instrumentation (BPF-based MAC and audit policy)"
+	depends on SECURITY
+	depends on SECURITYFS
+	depends on BPF
+	depends on BPF_SYSCALL
+	help
+	  This selects the Kernel Runtime Security Instrumentation
+	  LSM which allows dynamic instrumentation of the security hooks with
+	  eBPF programs. The LSM creates per-hook files in securityfs to which
+	  eBPF programs can be attached.
+
+	  If you are unsure how to answer this question, answer N.
+
+config SECURITY_KRSI_ENFORCE
+	bool "Deny operations based on the evaluation of the attached programs"
+	depends on SECURITY_KRSI
+	help
+	  eBPF programs attached to hooks can be used for both auditing and
+	  enforcement. Enabling enforcement implies that the evaluation result
+	  from the attached eBPF programs will allow and deny the operation
+	  guarded by the security hook.
