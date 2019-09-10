@@ -23,8 +23,28 @@ static struct krsi_hook *get_hook_from_fd(int fd)
 		goto error;
 	}
 
+	/*
+	 * Only CAP_MAC_ADMIN users are allowed to make
+	 * changes to LSM hooks
+	 */
+	if (!capable(CAP_MAC_ADMIN)) {
+		ret = -EPERM;
+		goto error;
+	}
+
 	if (!is_krsi_hook_file(f.file)) {
 		ret = -EINVAL;
+		goto error;
+	}
+
+	/*
+	 * It's wrong to attach the program to the hook
+	 * if the file is not opened for a write. Note that,
+	 * this is an EBADF and not an EPERM because the file
+	 * has been opened with an incorrect mode.
+	 */
+	if (!(f.file->f_mode & FMODE_WRITE)) {
+		ret = -EBADF;
 		goto error;
 	}
 
