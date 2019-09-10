@@ -2,13 +2,27 @@
 
 #include <linux/lsm_hooks.h>
 
+#include "krsi_init.h"
+
+struct krsi_hook krsi_hooks_list[] = {
+	#define KRSI_HOOK_INIT(TYPE, NAME, H, I) \
+		[TYPE] = { \
+			.h_type = TYPE, \
+			.name = #NAME, \
+		},
+	#include "hooks.h"
+	#undef KRSI_HOOK_INIT
+};
+
 static int krsi_process_execution(struct linux_binprm *bprm)
 {
 	return 0;
 }
 
 static struct security_hook_list krsi_hooks[] __lsm_ro_after_init = {
-	LSM_HOOK_INIT(bprm_check_security, krsi_process_execution),
+	#define KRSI_HOOK_INIT(T, N, HOOK, IMPL) LSM_HOOK_INIT(HOOK, IMPL),
+	#include "hooks.h"
+	#undef KRSI_HOOK_INIT
 };
 
 static int __init krsi_init(void)
