@@ -5,6 +5,8 @@
 #include <linux/file.h>
 #include <linux/fs.h>
 #include <linux/types.h>
+#include <linux/filter.h>
+#include <linux/bpf.h>
 #include <linux/security.h>
 
 #include "krsi_fs.h"
@@ -27,12 +29,29 @@ bool is_krsi_hook_file(struct file *f)
 
 static void __init krsi_free_hook(struct krsi_hook *h)
 {
+	struct bpf_prog_array_item *item;
+	/*
+	 * This function is __init so we are guarranteed that there will be
+	 * no concurrent access.
+	 */
+	struct bpf_prog_array *progs = rcu_dereference_raw(h->progs);
+
+	if (progs) {
+		item = progs->items;
+		while (item->prog) {
+			bpf_prog_put(item->prog);
+			item++;
+		}
+		bpf_prog_array_free(progs);
+	}
+
 	securityfs_remove(h->h_dentry);
 	h->h_dentry = NULL;
 }
 
 static int __init krsi_init_hook(struct krsi_hook *h, struct dentry *parent)
 {
+	struct bpf_prog_array __rcu     *progs;
 	struct dentry *h_dentry;
 	int ret;
 
@@ -41,6 +60,15 @@ static int __init krsi_init_hook(struct krsi_hook *h, struct dentry *parent)
 
 	if (IS_ERR(h_dentry))
 		return PTR_ERR(h_dentry);
+
+	mutex_init(&h->mutex);
+	progs = bpf_prog_array_alloc(0, GFP_KERNEL);
+	if (!progs) {
+		ret = -ENOMEM;
+		goto error;
+	}
+
+	RCU_INIT_POINTER(h->progs, progs);
 	h_dentry->d_fsdata = h;
 	h->h_dentry = h_dentry;
 	return 0;
