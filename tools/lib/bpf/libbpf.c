@@ -3738,7 +3738,7 @@ load_program(struct bpf_program *prog, struct bpf_insn *insns, int insns_cnt,
 	load_attr.insns = insns;
 	load_attr.insns_cnt = insns_cnt;
 	load_attr.license = license;
-	if (prog->type == BPF_PROG_TYPE_TRACING) {
+	if (needs_btf_attach(prog->type)) {
 		load_attr.attach_prog_fd = prog->attach_prog_fd;
 		load_attr.attach_btf_id = prog->attach_btf_id;
 	} else {
@@ -3983,7 +3983,7 @@ __bpf_object__open(const char *path, const void *obj_buf, size_t obj_buf_sz,
 
 		bpf_program__set_type(prog, prog_type);
 		bpf_program__set_expected_attach_type(prog, attach_type);
-		if (prog_type == BPF_PROG_TYPE_TRACING) {
+		if (needs_btf_attach(prog_type)) {
 			err = libbpf_find_attach_btf_id(prog->section_name,
 							attach_type,
 							attach_prog_fd);
@@ -4933,6 +4933,7 @@ bool bpf_program__is_##NAME(const struct bpf_program *prog)	\
 }								\
 
 BPF_PROG_TYPE_FNS(socket_filter, BPF_PROG_TYPE_SOCKET_FILTER);
+BPF_PROG_TYPE_FNS(lsm, BPF_PROG_TYPE_LSM);
 BPF_PROG_TYPE_FNS(kprobe, BPF_PROG_TYPE_KPROBE);
 BPF_PROG_TYPE_FNS(sched_cls, BPF_PROG_TYPE_SCHED_CLS);
 BPF_PROG_TYPE_FNS(sched_act, BPF_PROG_TYPE_SCHED_ACT);
@@ -5009,6 +5010,8 @@ static const struct {
 	BPF_PROG_SEC("lwt_out",			BPF_PROG_TYPE_LWT_OUT),
 	BPF_PROG_SEC("lwt_xmit",		BPF_PROG_TYPE_LWT_XMIT),
 	BPF_PROG_SEC("lwt_seg6local",		BPF_PROG_TYPE_LWT_SEG6LOCAL),
+	BPF_PROG_BTF("lsm/",			BPF_PROG_TYPE_LSM,
+						BPF_LSM_MAC),
 	BPF_APROG_SEC("cgroup_skb/ingress",	BPF_PROG_TYPE_CGROUP_SKB,
 						BPF_CGROUP_INET_INGRESS),
 	BPF_APROG_SEC("cgroup_skb/egress",	BPF_PROG_TYPE_CGROUP_SKB,
@@ -5119,32 +5122,39 @@ int libbpf_prog_type_by_name(const char *name, enum bpf_prog_type *prog_type,
 	return -ESRCH;
 }
 
-#define BTF_PREFIX "btf_trace_"
+static inline int __btf__typdef_with_prefix(struct btf *btf, const char *name,
+					    const char *prefix)
+{
+
+	size_t prefix_len = strlen(prefix);
+	char btf_type_name[128];
+
+	strcpy(btf_type_name, prefix);
+	strncat(btf_type_name, name, sizeof(btf_type_name) - (prefix_len + 1));
+	return btf__find_by_name_kind(btf, btf_type_name, BTF_KIND_TYPEDEF);
+}
+
+#define BTF_TRACE_PREFIX "btf_trace_"
+#define BTF_LSM_PREFIX "lsm_btf_"
+
 int libbpf_find_vmlinux_btf_id(const char *name,
 			       enum bpf_attach_type attach_type)
 {
 	struct btf *btf = bpf_core_find_kernel_btf();
-	char raw_tp_btf[128] = BTF_PREFIX;
-	char *dst = raw_tp_btf + sizeof(BTF_PREFIX) - 1;
-	const char *btf_name;
 	int err = -EINVAL;
-	__u32 kind;
 
 	if (IS_ERR(btf)) {
 		pr_warn("vmlinux BTF is not found\n");
 		return -EINVAL;
 	}
 
-	if (attach_type == BPF_TRACE_RAW_TP) {
-		/* prepend "btf_trace_" prefix per kernel convention */
-		strncat(dst, name, sizeof(raw_tp_btf) - sizeof(BTF_PREFIX));
-		btf_name = raw_tp_btf;
-		kind = BTF_KIND_TYPEDEF;
-	} else {
-		btf_name = name;
-		kind = BTF_KIND_FUNC;
-	}
-	err = btf__find_by_name_kind(btf, btf_name, kind);
+	if (attach_type == BPF_TRACE_RAW_TP)
+		err = __btf__typdef_with_prefix(btf, name, BTF_TRACE_PREFIX);
+	else if (attach_type == BPF_LSM_MAC)
+		err = __btf__typdef_with_prefix(btf, name, BTF_LSM_PREFIX);
+	else
+		err = btf__find_by_name_kind(btf, name, BTF_KIND_FUNC);
+
 	btf__free(btf);
 	return err;
 }
