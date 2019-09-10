@@ -8,7 +8,7 @@
  *
  * Format:
  *
- *   KRSI_HOOK_INIT(TYPE, NAME, LSM_HOOK, KRSI_HOOK_FN)
+ *   KRSI_HOOK_INIT(TYPE, NAME, LSM_HOOK, KRSI_HOOK_FN, CALLBACK)
  *
  * KRSI adds one layer of indirection between the name of the hook and the name
  * it exposes to the userspace in Security FS to prevent the userspace from
@@ -18,4 +18,5 @@
 KRSI_HOOK_INIT(PROCESS_EXECUTION,
 	       process_execution,
 	       bprm_check_security,
-	       krsi_process_execution)
+	       krsi_process_execution,
+	       krsi_process_execution_cb)
