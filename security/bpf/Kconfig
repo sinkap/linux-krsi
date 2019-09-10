@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: GPL-2.0
+#
+# Copyright 2019 Google LLC.
+
+config SECURITY_BPF
+	bool "BPF-based MAC and audit policy"
+	depends on SECURITY
+	depends on SECURITYFS
+	depends on BPF
+	depends on BPF_SYSCALL
+	help
+	  This enables instrumentation of the security hooks with
+	  eBPF programs. The LSM creates per-hook files in securityfs to which
+	  eBPF programs can be attached.
+
+	  If you are unsure how to answer this question, answer N.
+
+config SECURITY_BPF_ENFORCE
+	bool "Deny operations based on the evaluation of the attached programs"
+	depends on SECURITY_BPF
+	help
+	  eBPF programs attached to hooks can be used for both auditing and
+	  enforcement. Enabling enforcement implies that the evaluation result
+	  from the attached eBPF programs will allow or deny the operation
+	  guarded by the security hook.
