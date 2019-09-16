@@ -9,6 +9,7 @@
 #include <linux/mm.h>
 
 #include "krsi_init.h"
+#include "krsi_data.h"
 
 /*
  * need_arg_pages is only updated in bprm_check_security_cb
@@ -147,6 +148,10 @@ static struct security_hook_list krsi_hooks[] __lsm_ro_after_init = {
 static int __init krsi_init(void)
 {
 	security_add_hooks(krsi_hooks, ARRAY_SIZE(krsi_hooks), "krsi");
+	if (krsi_data_init()) {
+		pr_crit("impossible to initialize creds.\n");
+		return 1;
+	}
 	pr_info("eBPF and LSM are friends now.\n");
 	return 0;
 }
@@ -154,4 +159,5 @@ static int __init krsi_init(void)
 DEFINE_LSM(krsi) = {
 	.name = "krsi",
 	.init = krsi_init,
+	.blobs = &krsi_blob_sizes,
 };
