@@ -139,6 +139,16 @@ out_arg_pages:
 	return ret;
 }
 
+static int krsi_file_open(struct file *file) {
+	struct krsi_ctx ctx;
+
+	ctx.file_ctx = (struct krsi_file_ctx) {
+		.file = file,
+	};
+	return krsi_run_progs(FILE_OPEN, &ctx);
+}
+
+
 static struct security_hook_list krsi_hooks[] __lsm_ro_after_init = {
 	#define KRSI_HOOK_INIT(T, N, HOOK, IMPL, CB) LSM_HOOK_INIT(HOOK, IMPL),
 	#include "hooks.h"
