@@ -9,6 +9,7 @@
 
 enum krsi_hook_type {
 	PROCESS_EXECUTION,
+	FILE_OPEN,
 	__MAX_KRSI_HOOK_TYPE, /* delimiter */
 };
 
@@ -21,6 +22,10 @@ struct krsi_bprm_ctx {
 	unsigned long max_arg_offset;
 };
 
+struct krsi_file_ctx {
+	struct file *file;
+};
+
 /*
  * krsi_ctx is the context that is passed to all KRSI eBPF
  * programs.
@@ -28,6 +33,7 @@ struct krsi_bprm_ctx {
 struct krsi_ctx {
 	union {
 		struct krsi_bprm_ctx bprm_ctx;
+		struct krsi_file_ctx file_ctx;
 	};
 };
 

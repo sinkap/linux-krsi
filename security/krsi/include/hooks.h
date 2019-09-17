@@ -20,3 +20,8 @@ KRSI_HOOK_INIT(PROCESS_EXECUTION,
 	       bprm_check_security,
 	       krsi_process_execution,
 	       krsi_process_execution_cb)
+KRSI_HOOK_INIT(FILE_OPEN,
+	       file_open,
+	       file_open,
+	       krsi_file_open,
+	       NULL)
