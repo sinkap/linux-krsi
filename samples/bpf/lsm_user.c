@@ -109,6 +109,12 @@ error:
 	return err;
 }
 
+static void print_procfs_audit(struct procfs_event *pfs)
+{
+	printf("/prod/%d/%s accessed\n", pfs->pid, pfs->filename);
+
+}
+
 static void print_env_var(struct env_value *env)
 {
 	int times = env->times;
@@ -161,6 +167,9 @@ static void perf_event_handler(void *ctx, int cpu, void *data, __u32 size)
 	case LSM_AUDIT_ENV_VAR:
 		print_env_var(data);
 		return;
+	case LSM_AUDIT_PROCFS:
+		print_procfs_audit(data);
+		return;
 	default:
 		printf("unknown event\n");
 	}
@@ -194,6 +203,33 @@ static int update_percpu_array(struct bpf_map *map,
 out:
 	free(array);
 	return ret;
+}
+
+static int load_procfs_audit(const char *filename, int perf_fd)
+{
+	struct procfs_event event;
+	struct bpf_object *prog_obj;
+	struct bpf_map *map;
+	int ret = 0;
+
+	ret = bpf_program__load_lsm(filename, &prog_obj, perf_fd);
+	if (ret < 0)
+		return ret;
+
+	event.header.type = LSM_AUDIT_PROCFS;
+	event.header.magic = BPF_LSM_MAGIC;
+	strcpy(event.filename, "mem");
+
+	map = bpf_object__find_map_by_name(prog_obj, "procfs_map");
+	if (!map)
+		return -EINVAL;
+
+	ret = update_percpu_array(map, &event,
+		sizeof(struct procfs_event));
+	if (ret < 0)
+		err(EXIT_FAILURE, "Failed to update env map");
+
+	return 0;
 }
 
 static int load_env_dumper(const char *filename,
@@ -254,6 +290,12 @@ int main(int argc, char **argv)
 	if (ret < 0)
 		errx(EXIT_FAILURE,
 		     "Failed to load env_dumper");
+
+	snprintf(filename, sizeof(filename), "%s_audit_procfs.o", argv[0]);
+	ret = load_procfs_audit(filename, map_fd);
+	if (ret < 0)
+		errx(EXIT_FAILURE,
+		     "Failed to load procfs_audit");
 
 	pb_opts.sample_cb = perf_event_handler;
 	pb = perf_buffer__new(map_fd, PERF_BUFFER_PAGE_COUNT, &pb_opts);

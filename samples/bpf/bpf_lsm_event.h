@@ -14,6 +14,7 @@
 
 #define TASK_COMM_MAX_LEN 4096
 #define PATH_MAX_LEN 4096
+#define PROCFS_FILENAME_MAX_LEN PATH_MAX_LEN
 
 #define MAX_CPUS 128
 
@@ -28,6 +29,7 @@
 
 enum lsm_event_type {
 	LSM_AUDIT_ENV_VAR,
+	LSM_AUDIT_PROCFS,
 };
 
 struct lsm_event_header {
@@ -59,6 +61,20 @@ struct env_value {
 	__u32 p_uid;
 	// The GID of the parent process.
 	__u32 p_gid;
+} __bpf_percpu_val_align;
+
+struct procfs_event {
+	struct lsm_event_header header;
+	// The name of the file to monitor in procfs.
+	char filename[PROCFS_FILENAME_MAX_LEN];
+	// The UID of the process.
+	__u32 uid;
+	// The GID of the process.
+	__u32 gid;
+	// The PID of the process.
+	__u32 pid;
+	// The PID of the process whose procfs file is being accessed.
+	__u32 file_pid;
 } __bpf_percpu_val_align;
 
 #endif // _BPF_LSM_EVENT_H

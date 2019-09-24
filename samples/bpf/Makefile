@@ -114,6 +114,7 @@ hbm-objs := bpf_load.o hbm.o $(CGROUP_HELPERS)
 always := $(tprogs-y)
 always += sockex1_kern.o
 always += lsm_audit_env.o
+always += lsm_audit_procfs.o
 always += sockex2_kern.o
 always += sockex3_kern.o
 always += tracex1_kern.o
