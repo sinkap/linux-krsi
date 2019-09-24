@@ -30,6 +30,7 @@ int env_dumper(void *ctx)
 	u32 map_id = 0;
 	char *map_value;
 	struct krsi_env_value *env;
+	__u64 gid_uid = bpf_get_current_uid_gid();
 	__u64 pid_tgid = bpf_get_current_pid_tgid();
 
 	env = bpf_map_lookup_elem(&env_map, &map_id);
@@ -45,8 +46,14 @@ int env_dumper(void *ctx)
 		return ret;
 
 	env->times = __UPPER(times_ret);
+	env->p_uid = __LOWER(gid_uid);
+	env->p_gid = __UPPER(gid_uid);
 	env->p_pid = __UPPER(pid_tgid);
 
+	krsi_exec_file(ctx, env->exec_file, PATH_MAX_LEN);
+	krsi_exec_interp(ctx, env->exec_interp, PATH_MAX_LEN);
+
+	bpf_get_current_comm(env->p_comm, TASK_COMM_MAX_LEN);
 	bpf_perf_event_output(ctx, &perf_map, BPF_F_CURRENT_CPU, env,
 			      sizeof(struct krsi_env_value));
 
