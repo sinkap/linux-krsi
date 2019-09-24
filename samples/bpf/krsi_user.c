@@ -35,9 +35,10 @@ static void print_env(void *ctx, int cpu, void *data, __u32 size)
 	size_t total = 0;
 
 	if (env->times > 1)
-		printf("[p_pid=%u] WARNING! %s is set %u times\n",
-			env->p_pid, env->name, env->times);
-
+		printf("[p_pid=%u] [p_comm=%s] [p_uid=%u] [p_gid=%u] [exec_file=%s] [exec_interp=%s] WARNING! %s is set %d times\n",
+			env->p_pid, env->p_comm, env->p_uid,
+			env->p_gid, env->exec_file,
+			env->exec_interp, env->name, env->times);
 	/*
 	 * krsi_get_env_var ensures that even overflows
 	 * are null terminated. Incase of an overflow,
@@ -47,18 +48,25 @@ static void print_env(void *ctx, int cpu, void *data, __u32 size)
 	while (times && total < ENV_VAR_NAME_MAX_LEN) {
 		next += total;
 		if (env->overflow)
-			printf("[p_pid=%u] OVERFLOW! %s=%s\n",
-			       env->p_pid, env->name, next);
+			printf("[p_pid=%u] [p_comm=%s] [p_uid=%u] [p_gid=%u] [exec_file=%s] [exec_interp=%s]  OVERFLOW! %s=%s\n",
+				env->p_pid, env->p_comm, env->p_uid,
+				env->p_gid, env->exec_file,
+				env->exec_interp, env->name, next);
 		else
-			printf("[p_pid=%u] %s=%s\n",
-			       env->p_pid, env->name, next);
+			printf("[p_pid=%u] [p_comm=%s] [p_uid=%u] [p_gid=%u] [exec_file=%s] [exec_interp=%s] %s=%s\n",
+				env->p_pid, env->p_comm, env->p_uid,
+				env->p_gid, env->exec_file,
+				env->exec_interp, env->name, next);
+
 		times--;
 		total += strlen(next) + 1;
 	}
 
 	if (!env->times)
-		printf("[p_pid=%u] %s is not set\n",
-		       env->p_pid, env->name);
+		printf("[p_pid=%u] [p_comm=%s] [p_uid=%u] [p_gid=%u] [exec_file=%s] [exec_interp=%s] %s is not set\n",
+			env->p_pid, env->p_comm, env->p_uid,
+			env->p_gid, env->exec_file,
+			env->exec_interp, env->name);
 
 }
 
