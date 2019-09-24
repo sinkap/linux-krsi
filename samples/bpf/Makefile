@@ -117,6 +117,7 @@ hbm-objs := bpf_load.o hbm.o $(CGROUP_HELPERS)
 always := $(hostprogs-y)
 always += sockex1_kern.o
 always += krsi_kern.o
+always += krsi2_kern.o
 always += sockex2_kern.o
 always += sockex3_kern.o
 always += tracex1_kern.o

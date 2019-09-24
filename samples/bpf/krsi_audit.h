@@ -10,6 +10,7 @@
 
 #define TASK_COMM_MAX_LEN 4096
 #define PATH_MAX_LEN 4096
+#define PROCFS_FILENAME_MAX_LEN PATH_MAX_LEN
 
 #define MAX_CPUS 128
 
@@ -24,11 +25,26 @@
 
 enum krsi_audit_event_type {
 	KRSI_AUDIT_ENV_VAR,
+	KRSI_AUDIT_PROCFS,
 };
 
 struct krsi_audit_header {
-	__u16 magic;
+	uint16_t magic;
 	enum krsi_audit_event_type type;
+} __bpf_percpu_val_align;
+
+struct krsi_procfs {
+	struct krsi_audit_header header;
+	// The name of the file to monitor in procfs.
+	char filename[PROCFS_FILENAME_MAX_LEN];
+	// The UID of the process.
+	__u32 uid;
+	// The GID of the process.
+	__u32 gid;
+	// The PID of the process.
+	__u32 pid;
+	// The PID of the process whose procfs file is being accessed.
+	__u32 file_pid;
 } __bpf_percpu_val_align;
 
 struct krsi_env_value {
