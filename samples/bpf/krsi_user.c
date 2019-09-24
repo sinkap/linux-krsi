@@ -27,6 +27,12 @@
 #define PERF_BUFFER_PAGE_COUNT 32
 #define PERF_POLL_TIMEOUT_MS 1000
 
+
+static void print_procfs_audit(struct krsi_procfs *pfs)
+{
+	printf("/prod/%d/%s accessed\n", pfs->pid, pfs->filename);
+}
+
 static void print_env_var(struct krsi_env_value *env)
 {
 	int times = env->times;
@@ -79,6 +85,9 @@ static void perf_event_handler(void *ctx, int cpu, void *data, __u32 size)
 	case KRSI_AUDIT_ENV_VAR:
 		print_env_var(data);
 		return;
+	case KRSI_AUDIT_PROCFS:
+		print_procfs_audit(data);
+		return;
 	default:
 		printf("unknown event\n");
 	}
@@ -112,6 +121,37 @@ static int krsi_update_percpu_array(struct bpf_map *map,
 out:
 	free(array);
 	return ret;
+}
+
+static int load_procfs_audit(const char *filename, int perf_fd)
+{
+	struct krsi_procfs event;
+	struct bpf_object *prog_obj;
+	struct bpf_map *map;
+	struct krsi_attach_attr attr = {};
+	int ret = 0;
+
+	attr.filename = filename;
+	attr.perf_fd = perf_fd;
+
+	ret = krsi_attach_xattr(&attr, &prog_obj);
+	if (ret < 0)
+		return ret;
+
+	event.header.type = KRSI_AUDIT_PROCFS;
+	event.header.magic = KRSI_MAGIC;
+	strcpy(event.filename, "mem");
+
+	map = bpf_object__find_map_by_name(prog_obj, "procfs_map");
+	if (!map)
+		return -EINVAL;
+
+	ret = krsi_update_percpu_array(map, &event,
+		sizeof(struct krsi_procfs));
+	if (ret < 0)
+		err(EXIT_FAILURE, "Failed to update env map");
+
+	return 0;
 }
 
 static int load_env_dumper(const char *filename,
@@ -178,6 +218,11 @@ int main(int argc, char **argv)
 		errx(EXIT_FAILURE,
 		     "Failed to load env_dumper");
 
+	snprintf(filename, sizeof(filename), "%s2_kern.o", argv[0]);
+	ret = load_procfs_audit(filename, map_fd);
+	if (ret < 0)
+		errx(EXIT_FAILURE,
+		     "Failed to load procfs_audit");
 
 	pb_opts.sample_cb = perf_event_handler;
 	pb = perf_buffer__new(map_fd, PERF_BUFFER_PAGE_COUNT, &pb_opts);
