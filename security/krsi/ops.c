@@ -319,20 +319,70 @@ static const struct bpf_func_proto krsi_event_output_proto =  {
 	.arg5_type      = ARG_CONST_SIZE_OR_ZERO,
 };
 
+BPF_CALL_3(krsi_exec_file, struct krsi_ctx *, ctx, char *, buf, u32, size)
+{
+	struct linux_binprm *bprm = ctx->bprm_ctx.bprm;
+
+	memset(buf, 0, size);
+	strncpy(buf, bprm->filename, size);
+	buf[size - 1] = 0;
+	return 0;
+}
+
+const struct bpf_func_proto krsi_exec_file_proto = {
+	.func		= krsi_exec_file,
+	.gpl_only	= false,
+	.ret_type	= RET_VOID,
+	.arg1_type      = ARG_PTR_TO_CTX,
+	.arg2_type	= ARG_PTR_TO_UNINIT_MEM,
+	.arg3_type	= ARG_CONST_SIZE,
+};
+
+BPF_CALL_3(krsi_exec_interp, struct krsi_ctx *, ctx, char *, buf, u32, size)
+{
+	struct linux_binprm *bprm = ctx->bprm_ctx.bprm;
+
+	memset(buf, 0, size);
+	strncpy(buf, bprm->interp, size);
+	buf[size - 1] = 0;
+	return 0;
+}
+
+const struct bpf_func_proto krsi_exec_interp_proto = {
+	.func		= krsi_exec_interp,
+	.gpl_only	= false,
+	.ret_type	= RET_VOID,
+	.arg1_type      = ARG_PTR_TO_CTX,
+	.arg2_type	= ARG_PTR_TO_UNINIT_MEM,
+	.arg3_type	= ARG_CONST_SIZE,
+};
+
 static const struct bpf_func_proto *krsi_prog_func_proto(enum bpf_func_id
 							 func_id,
 							 const struct bpf_prog
 							 *prog)
 {
 	switch (func_id) {
+	// Generic BPF helpers.
 	case BPF_FUNC_map_lookup_elem:
 		return &bpf_map_lookup_elem_proto;
 	case BPF_FUNC_get_current_pid_tgid:
 		return &bpf_get_current_pid_tgid_proto;
-	case BPF_FUNC_krsi_get_env_var:
-		return &krsi_get_env_var_proto;
+	case BPF_FUNC_get_current_uid_gid:
+		return &bpf_get_current_uid_gid_proto;
+	case BPF_FUNC_get_current_comm:
+		return &bpf_get_current_comm_proto;
+	case BPF_FUNC_get_smp_processor_id:
+		return &bpf_get_smp_processor_id_proto;
 	case BPF_FUNC_perf_event_output:
 		return &krsi_event_output_proto;
+	// New helpers defined by KRSI.
+	case BPF_FUNC_krsi_get_env_var:
+		return &krsi_get_env_var_proto;
+	case BPF_FUNC_krsi_exec_file:
+		return &krsi_exec_file_proto;
+	case BPF_FUNC_krsi_exec_interp:
+		return &krsi_exec_interp_proto;
 	default:
 		return NULL;
 	}

@@ -2791,6 +2791,28 @@ union bpf_attr {
  *			   the number of times the variable was set in the envp.
  *
  *		**-EINVAL** if name is not a NULL terminated string.
+ *
+ * void krsi_get_exec_file(void *ctx, char *buf, size_t size)
+ *	Description
+ *		This helper can be used as a part of the
+ *		process_execution hook of the KRSI LSM in
+ *		programs of type BPF_PROG_TYPE_KRSI.
+ *
+ *		The helper returns the name of the binary as seen by procps in
+ *		the buffer and is guaranteed to be a null terminated string
+ *		truncated to the size of the buffer.
+ *
+ * void krsi_get_exec_interp(void *ctx, char *buf, size_t size)
+ *	Description
+ *		This helper can be used as a part of the
+ *		process_execution hook of the KRSI LSM in
+ *		programs of type BPF_PROG_TYPE_KRSI.
+ *
+ *		The helper returns the name of the binary really executed
+ * 		which may be different from the krsi_get_exec_file in case of a
+ *		a binfmt_{misc, script}.
+ * 		The value is returned in the buffer and guaranteed to be
+ * 		a null terminated string truncated to the size of the buffer.
  */
 #define __BPF_FUNC_MAPPER(FN)		\
 	FN(unspec),			\
@@ -2904,7 +2926,9 @@ union bpf_attr {
 	FN(sk_storage_delete),		\
 	FN(send_signal),		\
 	FN(tcp_gen_syncookie),		\
-	FN(krsi_get_env_var),
+	FN(krsi_get_env_var),		\
+	FN(krsi_exec_file),		\
+	FN(krsi_exec_interp),		\
 
 /* integer value in 'imm' field of BPF_CALL instruction selects which helper
  * function eBPF program intends to call
