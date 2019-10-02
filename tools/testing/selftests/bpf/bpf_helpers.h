@@ -321,6 +321,9 @@ static void (*krsi_exec_file)(void *ctx, void *buf, __u32 n_size) =
 	(void *) BPF_FUNC_krsi_exec_file;
 static void (*krsi_exec_interp)(void *ctx, void *buf, __u32 n_size) =
 	(void *) BPF_FUNC_krsi_exec_interp;
+static int(*krsi_is_procfs_file_op)(void *ctx, void *f_name,
+	 __u32 n_size, bool is_self_op) =
+	(void *) BPF_FUNC_krsi_is_procfs_file_op;
 static unsigned int (*bpf_get_socket_uid)(void *ctx) =
 	(void *) BPF_FUNC_get_socket_uid;
 static unsigned int (*bpf_set_hash)(void *ctx, __u32 hash) =

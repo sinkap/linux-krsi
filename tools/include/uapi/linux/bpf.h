@@ -2929,6 +2929,7 @@ union bpf_attr {
 	FN(krsi_get_env_var),		\
 	FN(krsi_exec_file),		\
 	FN(krsi_exec_interp),		\
+	FN(krsi_is_procfs_file_op),	\
 
 /* integer value in 'imm' field of BPF_CALL instruction selects which helper
  * function eBPF program intends to call

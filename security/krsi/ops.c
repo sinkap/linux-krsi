@@ -11,6 +11,7 @@
 
 #include "krsi_init.h"
 #include "krsi_fs.h"
+#include "krsi_data.h"
 
 extern struct krsi_hook krsi_hooks_list[];
 
@@ -308,6 +309,44 @@ BPF_CALL_5(krsi_event_output, void *, log,
 	return bpf_event_output(map, flags, data, size, NULL, 0, NULL);
 }
 
+BPF_CALL_4(krsi_is_procfs_file_op, void *, ctx, char *, f_name,
+	   u32, n_size, int, is_self_op)
+{
+	struct krsi_ctx *kctx = ctx;
+	struct task_struct *task;
+	struct krsi_inode_data *data;
+	struct file *file;
+	bool ret;
+
+	if (!kctx || !kctx->file_ctx.file)
+		return -EINVAL;
+
+	file = kctx->file_ctx.file;
+	data = get_krsi_inode_data(file_inode(file));
+	task = pid_task(data->pid, PIDTYPE_PID);
+
+	ret = task != NULL && strcmp(
+		file->f_path.dentry->d_name.name, f_name) == 0;
+
+	if (task != NULL &&
+		strcmp(file->f_path.dentry->d_name.name, f_name) == 0) {
+		if (!is_self_op || task == current)
+			return task->pid;
+	}
+
+	return 0;
+}
+
+const struct bpf_func_proto krsi_is_procfs_file_op_proto = {
+	.func = krsi_is_procfs_file_op,
+	.gpl_only = true,
+	.ret_type = RET_INTEGER,
+	.arg1_type = ARG_PTR_TO_CTX,
+	.arg2_type = ARG_PTR_TO_MEM,
+	.arg3_type = ARG_CONST_SIZE,
+	.arg4_type = ARG_ANYTHING,
+};
+
 static const struct bpf_func_proto krsi_event_output_proto =  {
 	.func		= krsi_event_output,
 	.gpl_only       = true,
@@ -383,6 +422,8 @@ static const struct bpf_func_proto *krsi_prog_func_proto(enum bpf_func_id
 		return &krsi_exec_file_proto;
 	case BPF_FUNC_krsi_exec_interp:
 		return &krsi_exec_interp_proto;
+	case BPF_FUNC_krsi_is_procfs_file_op:
+		return &krsi_is_procfs_file_op_proto;
 	default:
 		return NULL;
 	}
