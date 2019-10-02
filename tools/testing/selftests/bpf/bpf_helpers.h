@@ -317,6 +317,10 @@ static int (*bpf_probe_read_str)(void *ctx, __u32 size,
 static unsigned long long (*krsi_get_env_var)(void *ctx,
 	void *name, __u32 n_size, void *buf, __u32 size) =
 	(void *) BPF_FUNC_krsi_get_env_var;
+static void (*krsi_exec_file)(void *ctx, void *buf, __u32 n_size) =
+	(void *) BPF_FUNC_krsi_exec_file;
+static void (*krsi_exec_interp)(void *ctx, void *buf, __u32 n_size) =
+	(void *) BPF_FUNC_krsi_exec_interp;
 static unsigned int (*bpf_get_socket_uid)(void *ctx) =
 	(void *) BPF_FUNC_get_socket_uid;
 static unsigned int (*bpf_set_hash)(void *ctx, __u32 hash) =
