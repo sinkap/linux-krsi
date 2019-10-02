@@ -3656,25 +3656,42 @@ struct bpf_object *bpf_object__open(const char *path)
 	return bpf_object__open_xattr(&attr);
 }
 
-struct bpf_object *bpf_object__open_buffer(void *obj_buf,
-					   size_t obj_buf_sz,
-					   const char *name)
+struct bpf_object *
+bpf_object__open_buffer_xattr(struct bpf_object_open_buffer_attr *attr)
 {
 	char tmp_name[64];
 
 	/* param validation */
-	if (!obj_buf || obj_buf_sz <= 0)
-		return NULL;
+	if (!attr || !attr->obj_buf || attr->obj_buf_sz <= 0)
+		return ERR_PTR(-EINVAL);
 
-	if (!name) {
+	if (!attr->obj_name) {
 		snprintf(tmp_name, sizeof(tmp_name), "%lx-%lx",
-			 (unsigned long)obj_buf,
-			 (unsigned long)obj_buf_sz);
-		name = tmp_name;
+			 (unsigned long)attr->obj_buf,
+			 (unsigned long)attr->obj_buf_sz);
+		attr->obj_name = tmp_name;
 	}
-	pr_debug("loading object '%s' from buffer\n", name);
+	pr_debug("loading object '%s' from buffer\n", attr->obj_name);
 
-	return __bpf_object__open(name, obj_buf, obj_buf_sz, true, true);
+	return __bpf_object__open(attr->obj_name, attr->obj_buf,
+				  attr->obj_buf_sz,
+				  bpf_prog_type__needs_kver(attr->prog_type),
+				  attr->flags);
+}
+
+struct bpf_object *bpf_object__open_buffer(void *obj_buf,
+					   size_t obj_buf_sz,
+					   const char *name)
+{
+	struct bpf_object_open_buffer_attr attr = {
+		.obj_name	= name,
+		.obj_buf	= obj_buf,
+		.obj_buf_sz	= obj_buf_sz,
+		.prog_type	= BPF_PROG_TYPE_UNSPEC,
+		.flags		=  MAPS_RELAX_COMPAT,
+	};
+
+	return bpf_object__open_buffer_xattr(&attr);
 }
 
 int bpf_object__unload(struct bpf_object *obj)

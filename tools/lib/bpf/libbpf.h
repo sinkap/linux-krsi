@@ -67,6 +67,14 @@ struct bpf_object_open_attr {
 	enum bpf_prog_type prog_type;
 };
 
+struct bpf_object_open_buffer_attr {
+	const char *obj_name;
+	void *obj_buf;
+	size_t obj_buf_sz;
+	enum bpf_prog_type prog_type;
+	int flags;
+};
+
 LIBBPF_API struct bpf_object *bpf_object__open(const char *path);
 LIBBPF_API struct bpf_object *
 bpf_object__open_xattr(struct bpf_object_open_attr *attr);
@@ -75,6 +83,8 @@ struct bpf_object *__bpf_object__open_xattr(struct bpf_object_open_attr *attr,
 LIBBPF_API struct bpf_object *bpf_object__open_buffer(void *obj_buf,
 						      size_t obj_buf_sz,
 						      const char *name);
+LIBBPF_API struct bpf_object *
+bpf_object__open_buffer_xattr(struct bpf_object_open_buffer_attr *attr);
 int bpf_object__section_size(const struct bpf_object *obj, const char *name,
 			     __u32 *size);
 int bpf_object__variable_offset(const struct bpf_object *obj, const char *name,
