@@ -191,4 +191,5 @@ LIBBPF_0.0.4 {
 LIBBPF_0.0.5 {
 	global:
 		bpf_btf_get_next_id;
+		bpf_object__open_buffer_xattr;
 } LIBBPF_0.0.4;
