@@ -8,6 +8,7 @@ hostprogs-y := test_lru_dist
 hostprogs-y += sock_example
 hostprogs-y += fds_example
 hostprogs-y += sockex1
+hostprogs-y += krsi
 hostprogs-y += sockex2
 hostprogs-y += sockex3
 hostprogs-y += tracex1
@@ -62,6 +63,7 @@ TRACE_HELPERS := ../../tools/testing/selftests/bpf/trace_helpers.o
 
 fds_example-objs := fds_example.o
 sockex1-objs := sockex1_user.o
+krsi-objs := krsi_user.o $(TRACE_HELPERS)
 sockex2-objs := sockex2_user.o
 sockex3-objs := bpf_load.o sockex3_user.o
 tracex1-objs := bpf_load.o tracex1_user.o
@@ -113,6 +115,7 @@ hbm-objs := bpf_load.o hbm.o $(CGROUP_HELPERS)
 # Tell kbuild to always build the programs
 always := $(hostprogs-y)
 always += sockex1_kern.o
+always += krsi_kern.o
 always += sockex2_kern.o
 always += sockex3_kern.o
 always += tracex1_kern.o
