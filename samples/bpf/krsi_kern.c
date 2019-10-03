@@ -22,7 +22,7 @@ struct bpf_map_def SEC("maps") perf_map = {
 	.max_entries = MAX_CPUS,
 };
 
-SEC("krsi")
+SEC("krsi/process_execution")
 int env_dumper(void *ctx)
 {
 	u64 times_ret;

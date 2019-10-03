@@ -16,7 +16,23 @@
 #define __LOWER(x) (x & 0xffffffff)
 #define __UPPER(x) (x >> 32)
 
+/*
+ * The first field of the krsi_header is magic to identify whether the given
+ * PERF_EVENT_RAW comes from KRSI.
+ */
+#define KRSI_MAGIC 0x6006
+
+enum krsi_audit_event_type {
+	KRSI_AUDIT_ENV_VAR,
+};
+
+struct krsi_audit_header {
+	__u16 magic;
+	enum krsi_audit_event_type type;
+} __bpf_percpu_val_align;
+
 struct krsi_env_value {
+	struct krsi_audit_header header;
 	// The name of the environment variable.
 	char name[ENV_VAR_NAME_MAX_LEN];
 	// The value of the environment variable (if set).
