@@ -57,6 +57,7 @@ hostprogs-y += hbm
 
 # Libbpf dependencies
 LIBBPF = $(TOOLS_PATH)/lib/bpf/libbpf.a
+LIBKRSI = $(TOOLS_PATH)/lib/krsi/libkrsi.a
 
 CGROUP_HELPERS := ../../tools/testing/selftests/bpf/cgroup_helpers.o
 TRACE_HELPERS := ../../tools/testing/selftests/bpf/trace_helpers.o
@@ -182,9 +183,11 @@ KBUILD_HOSTCFLAGS += -I$(srctree)/tools/perf
 KBUILD_HOSTCFLAGS += -DHAVE_ATTR_TEST=0
 
 HOSTCFLAGS_bpf_load.o += -I$(objtree)/usr/include -Wno-unused-variable
+HOSTCFLAGS_krsi_kern.o = -I$(srctree)/tools/lib/krsi/include
 
 KBUILD_HOSTLDLIBS		+= $(LIBBPF) -lelf
 HOSTLDLIBS_tracex4		+= -lrt
+HOSTLDLIBS_krsi += $(LIBKRSI)
 HOSTLDLIBS_trace_output	+= -lrt
 HOSTLDLIBS_map_perf_test	+= -lrt
 HOSTLDLIBS_test_overhead	+= -lrt
@@ -245,6 +248,9 @@ $(LIBBPF): FORCE
 # Fix up variables inherited from Kbuild that tools/ build system won't like
 	$(MAKE) -C $(dir $@) RM='rm -rf' LDFLAGS= srctree=$(BPF_SAMPLES_PATH)/../../ O=
 
+$(LIBKRSI): $(LIBBPF)
+	$(MAKE) -C $(dir $@) RM='rm -rf' LDFLAGS= srctree=$(BPF_SAMPLES_PATH)/../../ O=
+
 $(obj)/syscall_nrs.h:	$(obj)/syscall_nrs.s FORCE
 	$(call filechk,offsets,__SYSCALL_NRS_H__)
 
@@ -273,6 +279,7 @@ verify_target_bpf: verify_cmds
 	else true; fi
 
 $(BPF_SAMPLES_PATH)/*.c: verify_target_bpf $(LIBBPF)
+$(BPF_SAMPLES_PATH)/krsi_user.c: verify_target_bpf $(LIBKRSI)
 $(src)/*.c: verify_target_bpf $(LIBBPF)
 
 $(obj)/tracex5_kern.o: $(obj)/syscall_nrs.h

@@ -18,18 +18,17 @@
 #include <fcntl.h>
 #include <sys/resource.h>
 #include <linux/perf_event.h>
+#include <krsi/libkrsi.h>
 
 #include "perf-sys.h"
 #include "trace_helpers.h"
 #include "krsi_audit.h"
 
-#define LSM_HOOK_PATH "/sys/kernel/security/krsi/process_execution"
 #define PERF_BUFFER_PAGE_COUNT 32
 #define PERF_POLL_TIMEOUT_MS 1000
 
-static void print_env(void *ctx, int cpu, void *data, __u32 size)
+static void print_env_var(struct krsi_env_value *env)
 {
-	struct krsi_env_value *env = data;
 	int times = env->times;
 	char *next = env->value;
 	size_t total = 0;
@@ -67,56 +66,101 @@ static void print_env(void *ctx, int cpu, void *data, __u32 size)
 			env->p_pid, env->p_comm, env->p_uid,
 			env->p_gid, env->exec_file,
 			env->exec_interp, env->name);
-
 }
 
-static int update_env_map(struct bpf_object *prog_obj, const char *env_var_name,
-			  int numcpus)
+static void perf_event_handler(void *ctx, int cpu, void *data, __u32 size)
 {
-	struct bpf_map *map;
-	struct krsi_env_value *env;
-	int map_fd;
-	int key = 0, ret = 0, i;
+	struct krsi_audit_header *header = data;
 
-	map = bpf_object__find_map_by_name(prog_obj, "env_map");
-	if (!map)
-		return -EINVAL;
+	if (header->magic != KRSI_MAGIC)
+		return;
+
+	switch (header->type) {
+	case KRSI_AUDIT_ENV_VAR:
+		print_env_var(data);
+		return;
+	default:
+		printf("unknown event\n");
+	}
+}
+
+static int krsi_update_percpu_array(struct bpf_map *map,
+				    void *data, size_t size)
+{
+	int numcpus = get_nprocs();
+	int key = 0, ret = 0;
+	void *array;
+	int map_fd, i;
 
 	map_fd = bpf_map__fd(map);
 	if (map_fd < 0)
 		return map_fd;
 
-	env = malloc(numcpus * sizeof(struct krsi_env_value));
-	if (!env) {
+	array = malloc(numcpus * size);
+	if (!array) {
 		ret = -ENOMEM;
 		goto out;
 	}
 
 	for (i = 0; i < numcpus; i++)
-		strcpy(env[i].name, env_var_name);
+		memcpy(array + i * size, data, size);
 
-	ret = bpf_map_update_elem(map_fd, &key, env, BPF_ANY);
+	ret = bpf_map_update_elem(map_fd, &key, array, BPF_ANY);
 	if (ret < 0)
 		goto out;
 
 out:
-	free(env);
+	free(array);
 	return ret;
+}
+
+static int load_env_dumper(const char *filename,
+			   const char *env_var_name,
+			   int perf_fd)
+{
+	struct krsi_env_value event;
+	struct bpf_map *map;
+	struct bpf_object *prog_obj;
+	struct krsi_attach_attr attr = {};
+	int ret = 0;
+
+	attr.filename = filename;
+	attr.perf_fd = perf_fd;
+
+	ret = krsi_attach_xattr(&attr, &prog_obj);
+	if (ret < 0)
+		return ret;
+
+	event.header.magic = KRSI_MAGIC;
+	event.header.type = KRSI_AUDIT_ENV_VAR;
+	strcpy(event.name, env_var_name);
+
+	map = bpf_object__find_map_by_name(prog_obj, "env_map");
+	if (!map)
+		return -EINVAL;
+
+	ret = krsi_update_percpu_array(map, &event,
+		sizeof(struct krsi_env_value));
+	if (ret < 0)
+		err(EXIT_FAILURE, "Failed to update env map");
+
+	return 0;
 }
 
 int main(int argc, char **argv)
 {
+	const char *env_var_name;
 	struct perf_buffer_opts pb_opts = {};
 	struct perf_buffer *pb;
-	struct bpf_object *prog_obj;
-	const char *env_var_name;
-	struct bpf_prog_load_attr attr;
-	int prog_fd, target_fd, map_fd;
-	int ret, numcpus;
-	struct bpf_map *map;
 	char filename[PATH_MAX];
 	struct rlimit r = {RLIM_INFINITY, RLIM_INFINITY};
+	int map_fd, ret = 0;
 
+	setrlimit(RLIMIT_MEMLOCK, &r);
+
+	map_fd = krsi_create_perf_map();
+	if (map_fd < 0)
+		errx(EXIT_FAILURE, "Unable to create perf map %d", errno);
 
 	if (argc != 2)
 		errx(EXIT_FAILURE, "Usage %s env_var_name\n", argv[0]);
@@ -128,46 +172,14 @@ int main(int argc, char **argv)
 		     ENV_VAR_NAME_MAX_LEN - 1);
 
 
-	setrlimit(RLIMIT_MEMLOCK, &r);
 	snprintf(filename, sizeof(filename), "%s_kern.o", argv[0]);
-
-	memset(&attr, 0, sizeof(struct bpf_prog_load_attr));
-	attr.prog_type = BPF_PROG_TYPE_KRSI;
-	attr.expected_attach_type = BPF_KRSI;
-	attr.file = filename;
-
-	/* Attach the BPF program to the given hook */
-	target_fd = open(LSM_HOOK_PATH, O_RDWR);
-	if (target_fd < 0)
-		err(EXIT_FAILURE, "Failed to open target file");
-
-	if (bpf_prog_load_xattr(&attr, &prog_obj, &prog_fd))
-		err(EXIT_FAILURE, "Failed to load eBPF program");
-
-	numcpus = get_nprocs();
-	if (numcpus > MAX_CPUS)
-		numcpus = MAX_CPUS;
-
-	ret = update_env_map(prog_obj, env_var_name, numcpus);
+	ret = load_env_dumper(filename, env_var_name, map_fd);
 	if (ret < 0)
-		err(EXIT_FAILURE, "Failed to update env map");
-
-	map = bpf_object__find_map_by_name(prog_obj, "perf_map");
-	if (!map)
-		err(EXIT_FAILURE,
-		    "Finding the perf event map in obj file failed");
-
-	map_fd = bpf_map__fd(map);
-	if (map_fd < 0)
-		err(EXIT_FAILURE, "Failed to get fd for perf events map");
-
-	ret = bpf_prog_attach(prog_fd, target_fd, BPF_KRSI,
-			      BPF_F_ALLOW_OVERRIDE);
-	if (ret < 0)
-		err(EXIT_FAILURE, "Failed to attach prog to LSM hook");
+		errx(EXIT_FAILURE,
+		     "Failed to load env_dumper");
 
 
-	pb_opts.sample_cb = print_env;
+	pb_opts.sample_cb = perf_event_handler;
 	pb = perf_buffer__new(map_fd, PERF_BUFFER_PAGE_COUNT, &pb_opts);
 	ret = libbpf_get_error(pb);
 	if (ret) {
