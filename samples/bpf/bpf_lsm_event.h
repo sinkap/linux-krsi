@@ -30,6 +30,7 @@
 enum lsm_event_type {
 	LSM_AUDIT_ENV_VAR,
 	LSM_AUDIT_PROCFS,
+	LSM_AUDIT_ARGS
 };
 
 struct lsm_event_header {
@@ -75,6 +76,11 @@ struct procfs_event {
 	__u32 pid;
 	// The PID of the process whose procfs file is being accessed.
 	__u32 file_pid;
+} __bpf_percpu_val_align;
+
+struct argv_output_header {
+	__u64 argc;
+	__u64 envc;
 } __bpf_percpu_val_align;
 
 #endif // _BPF_LSM_EVENT_H

@@ -156,6 +156,24 @@ static void print_env_var(struct env_value *env)
 			env->exec_interp, env->name);
 }
 
+static void print_argv(void *data)
+{
+	struct argv_output_header *head = data +
+		sizeof(struct lsm_event_header);
+	char *buf = (void *)head + sizeof(struct argv_output_header);
+	int i;
+
+	for (i = 0; i < head->argc; i++) {
+		printf("agrv[%d] = %s\n", i, buf);
+		buf += strlen(buf) + 1;
+	}
+
+	for (i = 0; i < head->envc; i++) {
+		printf("envv[%d] = %s\n", i, buf);
+		buf += strlen(buf) + 1;
+	}
+}
+
 static void perf_event_handler(void *ctx, int cpu, void *data, __u32 size)
 {
 	struct lsm_event_header *header = data;
@@ -169,6 +187,9 @@ static void perf_event_handler(void *ctx, int cpu, void *data, __u32 size)
 		return;
 	case LSM_AUDIT_PROCFS:
 		print_procfs_audit(data);
+		return;
+	case LSM_AUDIT_ARGS:
+		print_argv(data);
 		return;
 	default:
 		printf("unknown event\n");
@@ -268,6 +289,7 @@ int main(int argc, char **argv)
 	struct perf_buffer *pb;
 	char filename[PATH_MAX];
 	struct rlimit r = {RLIM_INFINITY, RLIM_INFINITY};
+	struct bpf_object *prog_obj;
 	int map_fd, ret = 0;
 
 	setrlimit(RLIMIT_MEMLOCK, &r);
@@ -296,6 +318,12 @@ int main(int argc, char **argv)
 	if (ret < 0)
 		errx(EXIT_FAILURE,
 		     "Failed to load procfs_audit");
+
+	snprintf(filename, sizeof(filename), "%s_audit_argv.o", argv[0]);
+	ret = bpf_program__load_lsm(filename, &prog_obj, map_fd);
+	if (ret < 0)
+		errx(EXIT_FAILURE,
+		     "Failed to load argv_audit");
 
 	pb_opts.sample_cb = perf_event_handler;
 	pb = perf_buffer__new(map_fd, PERF_BUFFER_PAGE_COUNT, &pb_opts);

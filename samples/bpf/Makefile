@@ -115,6 +115,7 @@ always := $(tprogs-y)
 always += sockex1_kern.o
 always += lsm_audit_env.o
 always += lsm_audit_procfs.o
+always += lsm_audit_argv.o
 always += sockex2_kern.o
 always += sockex3_kern.o
 always += tracex1_kern.o
