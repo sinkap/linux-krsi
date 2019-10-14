@@ -2830,6 +2830,42 @@ union bpf_attr {
  *		it does not need a context argument.
  *	Return
  *		0 on success, or a negative error in case of failure.
+ *
+ * u64 bpf_lsm_get_env_var(void *ctx, char *name, size_t name_len, char *dest, size_t destlen)
+ *	Description
+ *		This helper can be used as a part of the
+ *		process_execution hook of the BPF LSM in
+ *		programs of type BPF_PROG_TYPE_LSM.
+ *
+ *		The helper returns the value of the environment
+ *		variable with the provided "name" for process that's
+ *		going to be executed in the passed buffer, "dest". If the var
+ *		is set multiple times, the helper returns all
+ *		the values as null separated strings.
+ *
+ *		If the buffer is too short for these values, the helper
+ *		tries to fill it the best it can and guarantees that the value
+ *		returned in the buffer  is always null terminated.
+ *		After the buffer is filled, the helper keeps counting the number
+ *		of times the environment variable is set in the envp.
+ *	Return
+ *		The return value of the helper is an u64 value
+ *		which carries two pieces of information:
+ *
+ *		   The upper 32 bits are a u32 value signifying
+ *		   the number of times the environment variable
+ *		   is set in the envp.
+ *		   The lower 32 bits are an s32 value signifying
+ *		   the number of bytes written to the buffer or an error code:
+ *
+ *		**-ENOMEM** if the kernel is unable to allocate memory
+ *			    for pinning the argv and envv.
+ *
+ *		**-E2BIG** if the value is larger than the size of the
+ *			   destination buffer. The higher bits will still
+ *			   the number of times the variable was set in the envp.
+ *
+ *		**-EINVAL** if name is not a NULL terminated string.
  */
 #define __BPF_FUNC_MAPPER(FN)		\
 	FN(unspec),			\
@@ -2949,6 +2985,7 @@ union bpf_attr {
 	FN(probe_read_user_str),	\
 	FN(probe_read_kernel_str),	\
 	FN(lsm_event_output),		\
+	FN(bpf_lsm_get_env_var),
 
 /* integer value in 'imm' field of BPF_CALL instruction selects which helper
  * function eBPF program intends to call
