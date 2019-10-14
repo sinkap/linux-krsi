@@ -9,6 +9,8 @@
 #include <linux/file.h>
 #include <linux/fs.h>
 #include <linux/types.h>
+#include <linux/filter.h>
+#include <linux/bpf.h>
 #include <linux/security.h>
 #include <linux/bpf_lsm.h>
 
@@ -28,6 +30,19 @@ bool is_bpf_lsm_hook_file(struct file *f)
 
 static void __init free_hook(struct bpf_lsm_hook *h)
 {
+	struct bpf_prog_array_item *item;
+	/*
+	 * This function is __init so we are guaranteed that there will be
+	 * no concurrent access.
+	 */
+	struct bpf_prog_array *progs = rcu_dereference_raw(h->progs);
+
+	if (progs) {
+		for (item = progs->items; item->prog; item++)
+			bpf_prog_put(item->prog);
+		bpf_prog_array_free(progs);
+	}
+
 	securityfs_remove(h->h_dentry);
 	h->h_dentry = NULL;
 }
@@ -36,8 +51,8 @@ static int __init init_hook(struct bpf_lsm_hook *h, struct dentry *parent)
 {
 	struct dentry *h_dentry;
 
-	h_dentry = securityfs_create_file(h->name, 0600, parent,
-			NULL, &hook_ops);
+	h_dentry = securityfs_create_file(h->name, 0600,
+					  parent, NULL, &hook_ops);
 	if (IS_ERR(h_dentry))
 		return PTR_ERR(h_dentry);
 

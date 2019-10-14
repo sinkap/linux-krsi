@@ -3181,6 +3181,7 @@ L:	linux-security-module@vger.kernel.org
 L:	bpf@vger.kernel.org
 S:	Maintained
 F:	security/bpf/
+F:	include/linux/bpf_lsm.h
 
 BROADCOM B44 10/100 ETHERNET DRIVER
 M:	Michael Chan <michael.chan@broadcom.com>
