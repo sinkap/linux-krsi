@@ -331,6 +331,93 @@ BPF_CALL_4(bpf_lsm_event_output,
 	return bpf_event_output(map, flags, data, size, NULL, 0, NULL);
 }
 
+static unsigned long arg_pages_copy(void *dst_buff, const void *src,
+				   unsigned long off, unsigned long len)
+{
+
+	unsigned long hlen = sizeof(struct bpf_lsm_argv_header);
+	const struct bpf_lsm_argv_info *info = src;
+	const struct bpf_lsm_argv_header *head;
+	struct bpf_lsm_task_blob *tsec;
+	const struct linux_binprm *bprm;
+	unsigned long page_offset;
+	char *buf;
+
+	if (!info->header || !info->bprm)
+		return 0;
+
+	head = info->header;
+	bprm = info->bprm;
+	page_offset = bprm->p % PAGE_SIZE;
+
+	tsec = get_bpf_lsm_task_blob(bprm->cred);
+	if (unlikely(!tsec))
+		return 0;
+
+	buf = tsec->arg_pages + page_offset;
+	head = info->header;
+
+	if (off < hlen) {
+		if (len <= (hlen - off)) {
+			memcpy(dst_buff, head + off, len);
+			return 0;
+		} else {
+			memcpy(dst_buff, head + off, hlen - off);
+			len = len - hlen + off;
+			dst_buff += hlen - off;
+			off = hlen;
+		}
+	}
+
+	if (off >= hlen) {
+		off -= hlen;
+		memcpy(dst_buff, buf + off, len);
+	}
+
+	return 0;
+}
+
+BPF_CALL_5(lsm_output_argv, struct linux_binprm *, bprm, struct bpf_map *, map,
+	   u64, flags, void *, meta, u64, meta_size)
+{
+
+
+	struct bpf_lsm_task_blob *tsec;
+	struct bpf_lsm_argv_header head = {
+		.argc = bprm->argc,
+		.envc = bprm->envc,
+	};
+	struct bpf_lsm_argv_info info = {
+		.header = &head,
+		.bprm = bprm,
+	};
+	unsigned long end;
+	unsigned long offset = bprm->p % PAGE_SIZE;
+
+	tsec = get_bpf_lsm_task_blob(bprm->cred);
+	if (unlikely(!tsec))
+		return 0;
+
+	end = tsec->num_arg_pages * PAGE_SIZE;
+	return bpf_event_output(map, flags, meta, meta_size,
+				&info,
+				end - offset +
+					sizeof(struct bpf_lsm_argv_header),
+				arg_pages_copy);
+}
+
+static u32 lsm_output_argv_btf_ids[5];
+const struct bpf_func_proto lsm_output_argv_proto = {
+	.func		= lsm_output_argv,
+	.gpl_only	= true,
+	.ret_type	= RET_INTEGER,
+	.arg1_type	= ARG_PTR_TO_BTF_ID,
+	.arg2_type	= ARG_CONST_MAP_PTR,
+	.arg3_type	= ARG_ANYTHING,
+	.arg4_type	= ARG_PTR_TO_MEM,
+	.arg5_type	= ARG_CONST_SIZE_OR_ZERO,
+	.btf_id 	= lsm_output_argv_btf_ids,
+};
 
 BPF_CALL_4(lsm_is_procfs_file_op, struct file *, file, char *, f_name,
 	   u32, n_size, int, is_self_op)
@@ -398,6 +485,8 @@ static const struct bpf_func_proto *get_bpf_func_proto(enum bpf_func_id
 		return &bpf_lsm_get_env_var_proto;
 	case BPF_FUNC_lsm_is_procfs_file_op:
 		return &lsm_is_procfs_file_op_proto;
+	case BPF_FUNC_lsm_output_argv:
+		return &lsm_output_argv_proto;
 	default:
 		return NULL;
 	}

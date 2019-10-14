@@ -2874,6 +2874,14 @@ union bpf_attr {
  *		is writing to /proc/<pid>/mem
  *	Return
  *		The PID of the task accessing the file.
+ *
+ * int bpf_lsm_output_argv(void *ctx, void *map, u64 flags, void *data, int size)
+ *	Description
+ *		Similar to bpf_perf_event_output but accepts a bprm struct
+ *		(ARG_PTR_TO_BTF_ID) and dumps the arg pages with the extra
+ *		metadata to the input buffer.
+ *	Return
+ *		0 on success, or a negative error in case of failure.
  */
 #define __BPF_FUNC_MAPPER(FN)		\
 	FN(unspec),			\
@@ -2995,6 +3003,7 @@ union bpf_attr {
 	FN(lsm_event_output),		\
 	FN(bpf_lsm_get_env_var),	\
 	FN(lsm_is_procfs_file_op),	\
+	FN(lsm_output_argv),		\
 
 /* integer value in 'imm' field of BPF_CALL instruction selects which helper
  * function eBPF program intends to call

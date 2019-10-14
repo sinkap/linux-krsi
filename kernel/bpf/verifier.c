@@ -3642,6 +3642,7 @@ static int check_map_func_compatibility(struct bpf_verifier_env *env,
 		    func_id != BPF_FUNC_perf_event_output &&
 		    func_id != BPF_FUNC_skb_output &&
 		    func_id != BPF_FUNC_lsm_event_output &&
+		    func_id != BPF_FUNC_lsm_output_argv &&
 		    func_id != BPF_FUNC_perf_event_read_value)
 			goto error;
 		break;

@@ -20,6 +20,24 @@ enum lsm_hook_type {
 };
 
 /*
+ * bpf_lsm_argv_header is added after the metadata when using the
+ * bpf_lsm_argv_info eBPF helper which output the args to the perf event
+ * buffer.
+ * TODO: This should ideally be moved to a uapi file.
+ */
+struct bpf_lsm_argv_header {
+	unsigned long argc;
+	unsigned long envc;
+} __packed;
+
+struct bpf_lsm_argv_info {
+	const struct bpf_lsm_argv_header *header;
+	const struct linux_binprm *bprm;
+};
+
+extern int bpf_lsm_fs_initialized;
+
+/*
  * This data structure contains all the information required by the LSM for a
  * a hook.
  */
