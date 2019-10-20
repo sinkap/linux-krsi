@@ -20,6 +20,14 @@ extern struct lsm_blob_sizes bpf_lsm_blob_sizes __lsm_ro_after_init;
 int bpf_lsm_data_init(void) __init;
 
 /*
+ * Executor represents a process that's currently executing a file.
+*/
+struct executor {
+	struct pid *pid;
+	struct list_head list;
+};
+
+/*
  * Security blob for the inode.
  */
 struct bpf_lsm_inode_blob {
@@ -28,6 +36,15 @@ struct bpf_lsm_inode_blob {
 	 * in /proc/<pid>/
 	 */
 	struct pid *proc_pid;
+	/*
+	 * A list of the processes (struct executor) that are currently
+	 * executing the file represented by the inode.
+	 */
+	struct list_head executors;
+	/*
+	 * The lock must be held when writing to the list of executors.
+	 */
+	spinlock_t executors_lock;
 };
 
 /*
@@ -39,6 +56,22 @@ struct bpf_lsm_task_blob {
 	char *arg_pages;
 	unsigned long num_arg_pages;
 };
+
+static inline struct executor *init_executor(struct pid *pid)
+{
+	struct executor *exec = kmalloc(sizeof(struct executor), GFP_ATOMIC);
+	if (!exec)
+		return ERR_PTR(-ENOMEM);
+	INIT_LIST_HEAD(&exec->list);
+	exec->pid = pid;
+	return exec;
+}
+
+static inline void free_executor(struct executor *exec)
+{
+	put_pid(exec->pid);
+	kfree(exec);
+}
 
 static inline struct bpf_lsm_inode_blob *get_bpf_lsm_inode_blob(
 						const struct inode *inode)

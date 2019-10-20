@@ -23,9 +23,20 @@ static void bpf_lsm_task_to_inode(struct task_struct *t, struct inode *i)
 		pr_err("unable to determine pid in inode task hook\n");
 }
 
+static int bpf_lsm_inode_alloc_security(struct inode *inode)
+{
+	struct bpf_lsm_inode_blob *data = get_bpf_lsm_inode_blob(inode);
+
+	INIT_LIST_HEAD(&data->executors);
+	spin_lock_init(&data->executors_lock);
+	return 0;
+}
+
 static int bpf_lsm_bprm_set_creds(struct linux_binprm *bprm)
 {
 	struct bpf_lsm_task_blob *tsec;
+	struct bpf_lsm_inode_blob *isec;
+	struct executor *exec;
 	struct inode *inode;
 	struct pid *pid;
 
@@ -38,6 +49,7 @@ static int bpf_lsm_bprm_set_creds(struct linux_binprm *bprm)
 	 */
 	if (bprm->file && current) {
 		inode = file_inode(bprm->file);
+		isec = get_bpf_lsm_inode_blob(inode);
 
 		pid = get_task_pid(current, PIDTYPE_PID);
 		if (!pid) {
@@ -51,6 +63,16 @@ static int bpf_lsm_bprm_set_creds(struct linux_binprm *bprm)
 		__iget(inode);
 		spin_unlock(&inode->i_lock);
 		tsec->exec_inode = inode;
+
+		exec = init_executor(pid);
+		if (!exec)
+			return PTR_ERR(exec);
+		exec->pid = pid;
+
+		spin_lock(&isec->executors_lock);
+		list_add_tail_rcu(&exec->list, &isec->executors);
+		spin_unlock(&isec->executors_lock);
+		synchronize_rcu();
 	}
 	return 0;
 }
@@ -58,6 +80,9 @@ static int bpf_lsm_bprm_set_creds(struct linux_binprm *bprm)
 static void bpf_lsm_task_free(struct task_struct *task)
 {
 	struct bpf_lsm_task_blob *tsec;
+	struct bpf_lsm_inode_blob *isec;
+	struct executor *exec;
+	unsigned long flags;
 
 	tsec = get_bpf_lsm_task_blob(task->cred);
 	if (unlikely(!tsec))
@@ -72,13 +97,25 @@ static void bpf_lsm_task_free(struct task_struct *task)
 		return;
 	}
 
-	iput(tsec->exec_inode);
+	isec = get_bpf_lsm_inode_blob(tsec->exec_inode);
+	if (unlikely(!isec))
+			return;
+
+	spin_lock_irqsave(&isec->executors_lock, flags);
+	list_for_each_entry(exec, &isec->executors, list) {
+		if (exec->pid && exec->pid == tsec->pid) {
+			list_del_rcu(&exec->list);
+			free_executor(exec);
+		}
+	}
+	spin_unlock_irqrestore(&isec->executors_lock, flags);
 }
 
 static struct security_hook_list data_hooks[] __lsm_ro_after_init = {
 	LSM_HOOK_INIT(task_to_inode, bpf_lsm_task_to_inode),
 	LSM_HOOK_INIT(bprm_set_creds, bpf_lsm_bprm_set_creds),
 	LSM_HOOK_INIT(task_free, bpf_lsm_task_free),
+	LSM_HOOK_INIT(inode_alloc_security, bpf_lsm_inode_alloc_security),
 };
 
 struct lsm_blob_sizes bpf_lsm_blob_sizes __lsm_ro_after_init = {
