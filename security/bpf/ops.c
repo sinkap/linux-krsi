@@ -16,6 +16,7 @@
 #include "bpf_lsm.h"
 #include "data.h"
 #include "fs.h"
+#include "data.h"
 
 static struct bpf_lsm_hook *get_hook_from_fd(int fd)
 {
@@ -330,6 +331,39 @@ BPF_CALL_4(bpf_lsm_event_output,
 	return bpf_event_output(map, flags, data, size, NULL, 0, NULL);
 }
 
+
+BPF_CALL_4(lsm_is_procfs_file_op, struct file *, file, char *, f_name,
+	   u32, n_size, int, is_self_op)
+{
+	struct task_struct *task;
+	struct bpf_lsm_inode_blob *isec;
+
+	isec = get_bpf_lsm_inode_blob(file_inode(file));
+	if (unlikely(!isec))
+		return -EINVAL;
+
+	task = pid_task(isec->proc_pid, PIDTYPE_PID);
+	if (task != NULL &&
+		strcmp(file->f_path.dentry->d_name.name, f_name) == 0) {
+		if (!is_self_op || task == current)
+			return task->pid;
+	}
+
+	return 0;
+}
+
+static u32 lsm_is_procfs_file_op_btf_ids[4];
+const struct bpf_func_proto lsm_is_procfs_file_op_proto = {
+	.func = lsm_is_procfs_file_op,
+	.gpl_only = true,
+	.ret_type = RET_INTEGER,
+	.arg1_type = ARG_PTR_TO_BTF_ID,
+	.arg2_type = ARG_PTR_TO_MEM,
+	.arg3_type = ARG_CONST_SIZE,
+	.arg4_type = ARG_ANYTHING,
+	.btf_id = lsm_is_procfs_file_op_btf_ids,
+};
+
 static const struct bpf_func_proto bpf_lsm_event_output_proto =  {
 	.func		= bpf_lsm_event_output,
 	.gpl_only       = true,
@@ -362,6 +396,8 @@ static const struct bpf_func_proto *get_bpf_func_proto(enum bpf_func_id
 		return &bpf_lsm_event_output_proto;
 	case BPF_FUNC_bpf_lsm_get_env_var:
 		return &bpf_lsm_get_env_var_proto;
+	case BPF_FUNC_lsm_is_procfs_file_op:
+		return &lsm_is_procfs_file_op_proto;
 	default:
 		return NULL;
 	}

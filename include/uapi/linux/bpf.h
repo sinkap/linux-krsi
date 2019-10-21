@@ -2866,6 +2866,14 @@ union bpf_attr {
  *			   the number of times the variable was set in the envp.
  *
  *		**-EINVAL** if name is not a NULL terminated string.
+ *
+ * int bpf_lsm_is_procfs_file_op(void *ctx, void *f_name, u32 n_size, int is_self_op)
+ * 	Description
+ *		Check if the given file operation is on a file in procfs. For example
+ *		lsm_is_proc_file_op(ctx, "mem", 4, true) detetcs if a process
+ *		is writing to /proc/<pid>/mem
+ *	Return
+ *		The PID of the task accessing the file.
  */
 #define __BPF_FUNC_MAPPER(FN)		\
 	FN(unspec),			\
@@ -2986,6 +2994,7 @@ union bpf_attr {
 	FN(probe_read_kernel_str),	\
 	FN(lsm_event_output),		\
 	FN(bpf_lsm_get_env_var),	\
+	FN(lsm_is_procfs_file_op),	\
 
 /* integer value in 'imm' field of BPF_CALL instruction selects which helper
  * function eBPF program intends to call
