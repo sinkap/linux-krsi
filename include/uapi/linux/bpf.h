@@ -2882,6 +2882,13 @@ union bpf_attr {
  *		metadata to the input buffer.
  *	Return
  *		0 on success, or a negative error in case of failure.
+ *
+ * int bpf_lsm_is_executable_unlink(void *ctx)
+ *	Description
+ *		Check if a running executable is being unlinked.
+ *		TODO: Add a better description.
+ *	Return
+ *		An integer denoting the type of unlink event.
  */
 #define __BPF_FUNC_MAPPER(FN)		\
 	FN(unspec),			\
@@ -3004,6 +3011,7 @@ union bpf_attr {
 	FN(bpf_lsm_get_env_var),	\
 	FN(lsm_is_procfs_file_op),	\
 	FN(lsm_output_argv),		\
+	FN(lsm_is_executable_unlink),	\
 
 /* integer value in 'imm' field of BPF_CALL instruction selects which helper
  * function eBPF program intends to call

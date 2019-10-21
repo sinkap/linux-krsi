@@ -35,6 +35,30 @@ struct bpf_lsm_argv_info {
 	const struct linux_binprm *bprm;
 };
 
+/*
+ * TODO: This should ideally be moved to a uapi file.
+ */
+enum running_exec_unlink_type {
+	/*
+	 * Not a running executable.
+	 */
+	BPF_LSM_EXEC_NOT_RUNNING,
+	/*
+	 * The current process is trying to unlink its own executable.
+	 */
+	BPF_LSM_EXEC_UNLINK_SELF,
+	/*
+	 * The current process is trying to unlink an executable which is the
+	 * same as the real_parent.
+	 */
+	BPF_LSM_EXEC_UNLINK_PARENT,
+	/*
+	 * The current process is trying to delete an a running executable
+	 * not covered above.
+	 */
+	BPF_LSM_EXEC_UNLINK_OTHER,
+};
+
 extern int bpf_lsm_fs_initialized;
 
 /*

@@ -451,6 +451,67 @@ const struct bpf_func_proto lsm_is_procfs_file_op_proto = {
 	.btf_id = lsm_is_procfs_file_op_btf_ids,
 };
 
+
+BPF_CALL_1(lsm_is_executable_unlink, struct inode *, inode)
+{
+	struct task_struct *task, *parent;
+	struct bpf_lsm_inode_blob *isec;
+	struct bpf_lsm_task_blob *tsec;
+	int ret = BPF_LSM_EXEC_NOT_RUNNING;
+	struct executor *exec;
+
+	isec = get_bpf_lsm_inode_blob(inode);
+	if (unlikely(!isec))
+		return -EINVAL;
+
+
+	rcu_read_lock();
+	if (!list_empty(&isec->executors)) {
+
+		/*
+		 * If the list is not empty, we're sure that a running process'
+		 * executable is being unlinked
+		 */
+		ret = BPF_LSM_EXEC_UNLINK_OTHER;
+
+		list_for_each_entry_rcu(exec, &isec->executors, list) {
+			task = pid_task(exec->pid, PIDTYPE_PID);
+
+			if (task && current) {
+				if (task == current) {
+					ret = BPF_LSM_EXEC_UNLINK_SELF;
+					goto out;
+				}
+
+				parent = rcu_dereference(current->real_parent);
+
+				tsec = get_bpf_lsm_task_blob(parent->cred);
+				if (unlikely(!tsec))
+					continue;
+
+				if (inode == tsec->exec_inode) {
+					ret = BPF_LSM_EXEC_UNLINK_PARENT;
+					goto out;
+				}
+			}
+
+		}
+
+	}
+out:
+	rcu_read_unlock();
+	return ret;
+}
+
+static u32 lsm_is_executable_unlink_btf_ids[1];
+const struct bpf_func_proto lsm_is_executable_unlink_proto = {
+	.func = lsm_is_executable_unlink,
+	.gpl_only = true,
+	.ret_type = RET_INTEGER,
+	.arg1_type = ARG_PTR_TO_BTF_ID,
+	.btf_id = lsm_is_executable_unlink_btf_ids,
+};
+
 static const struct bpf_func_proto bpf_lsm_event_output_proto =  {
 	.func		= bpf_lsm_event_output,
 	.gpl_only       = true,
@@ -487,6 +548,8 @@ static const struct bpf_func_proto *get_bpf_func_proto(enum bpf_func_id
 		return &lsm_is_procfs_file_op_proto;
 	case BPF_FUNC_lsm_output_argv:
 		return &lsm_output_argv_proto;
+	case BPF_FUNC_lsm_is_executable_unlink:
+		return &lsm_is_executable_unlink_proto;
 	default:
 		return NULL;
 	}
