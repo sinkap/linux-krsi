@@ -30,7 +30,8 @@
 enum lsm_event_type {
 	LSM_AUDIT_ENV_VAR,
 	LSM_AUDIT_PROCFS,
-	LSM_AUDIT_ARGS
+	LSM_AUDIT_ARGS,
+	LSM_DETECT_EXEC_UNLINK,
 };
 
 struct lsm_event_header {
@@ -81,6 +82,12 @@ struct procfs_event {
 struct argv_output_header {
 	__u64 argc;
 	__u64 envc;
+} __bpf_percpu_val_align;
+
+struct unlink_event {
+	struct lsm_event_header header;
+	__u32 pid;
+	__u32 type;
 } __bpf_percpu_val_align;
 
 #endif // _BPF_LSM_EVENT_H

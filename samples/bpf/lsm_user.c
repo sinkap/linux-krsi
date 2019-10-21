@@ -174,6 +174,12 @@ static void print_argv(void *data)
 	}
 }
 
+
+static void print_unlink_event(struct unlink_event *event)
+{
+	printf("Unlink Event: [pid=%d] [type=%d]\n", event->pid, event->type);
+}
+
 static void perf_event_handler(void *ctx, int cpu, void *data, __u32 size)
 {
 	struct lsm_event_header *header = data;
@@ -190,6 +196,9 @@ static void perf_event_handler(void *ctx, int cpu, void *data, __u32 size)
 		return;
 	case LSM_AUDIT_ARGS:
 		print_argv(data);
+		return;
+	case LSM_DETECT_EXEC_UNLINK:
+		print_unlink_event(data);
 		return;
 	default:
 		printf("unknown event\n");
@@ -324,6 +333,13 @@ int main(int argc, char **argv)
 	if (ret < 0)
 		errx(EXIT_FAILURE,
 		     "Failed to load argv_audit");
+
+	snprintf(filename, sizeof(filename),
+		 "%s_detect_exec_unlink.o", argv[0]);
+	ret = bpf_program__load_lsm(filename, &prog_obj, map_fd);
+	if (ret < 0)
+		errx(EXIT_FAILURE,
+		     "Failed to load unlink_ttp");
 
 	pb_opts.sample_cb = perf_event_handler;
 	pb = perf_buffer__new(map_fd, PERF_BUFFER_PAGE_COUNT, &pb_opts);
