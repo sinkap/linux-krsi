@@ -1,5 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0 */
 
+#include <linux/bpf_event.h>
+
 #undef TRACE_SYSTEM_VAR
 
 #ifdef CONFIG_BPF_EVENTS
@@ -26,34 +28,6 @@
 
 #undef __perf_task
 #define __perf_task(t)	(t)
-
-/* cast any integer, pointer, or small struct to u64 */
-#define UINTTYPE(size) \
-	__typeof__(__builtin_choose_expr(size == 1,  (u8)1, \
-		   __builtin_choose_expr(size == 2, (u16)2, \
-		   __builtin_choose_expr(size == 4, (u32)3, \
-		   __builtin_choose_expr(size == 8, (u64)4, \
-					 (void)5)))))
-#define __CAST_TO_U64(x) ({ \
-	typeof(x) __src = (x); \
-	UINTTYPE(sizeof(x)) __dst; \
-	memcpy(&__dst, &__src, sizeof(__dst)); \
-	(u64)__dst; })
-
-#define __CAST1(a,...) __CAST_TO_U64(a)
-#define __CAST2(a,...) __CAST_TO_U64(a), __CAST1(__VA_ARGS__)
-#define __CAST3(a,...) __CAST_TO_U64(a), __CAST2(__VA_ARGS__)
-#define __CAST4(a,...) __CAST_TO_U64(a), __CAST3(__VA_ARGS__)
-#define __CAST5(a,...) __CAST_TO_U64(a), __CAST4(__VA_ARGS__)
-#define __CAST6(a,...) __CAST_TO_U64(a), __CAST5(__VA_ARGS__)
-#define __CAST7(a,...) __CAST_TO_U64(a), __CAST6(__VA_ARGS__)
-#define __CAST8(a,...) __CAST_TO_U64(a), __CAST7(__VA_ARGS__)
-#define __CAST9(a,...) __CAST_TO_U64(a), __CAST8(__VA_ARGS__)
-#define __CAST10(a,...) __CAST_TO_U64(a), __CAST9(__VA_ARGS__)
-#define __CAST11(a,...) __CAST_TO_U64(a), __CAST10(__VA_ARGS__)
-#define __CAST12(a,...) __CAST_TO_U64(a), __CAST11(__VA_ARGS__)
-/* tracepoints with more than 12 arguments will hit build error */
-#define CAST_TO_U64(...) CONCATENATE(__CAST, COUNT_ARGS(__VA_ARGS__))(__VA_ARGS__)
 
 #undef DECLARE_EVENT_CLASS
 #define DECLARE_EVENT_CLASS(call, proto, args, tstruct, assign, print)	\
