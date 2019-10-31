@@ -6,6 +6,11 @@
 
 #include <linux/lsm_hooks.h>
 #include <linux/bpf_lsm.h>
+#include <linux/filter.h>
+#include <linux/bpf.h>
+#include <linux/binfmts.h>
+#include <linux/highmem.h>
+#include <linux/mm.h>
 
 #include "bpf_lsm.h"
 #include "data.h"
@@ -124,6 +129,65 @@ static ret bpf_lsm_##hook(proto)				\
 	res = LSM_RUN_PROGS(hook##_type, args);			\
 	bpf_lsm_##hook##_post(args);				\
 	return LSM_HOOK_RET(ret, res);				\
+}
+
+int BPF_LSM_HOOK_PRE(bprm_check_security, struct linux_binprm *bprm)
+{
+	unsigned long i, pos, num_arg_pages;
+	struct bpf_lsm_task_blob *tsec;
+	struct page *page;
+	int ret = 0;
+	char *kaddr;
+	char *buf;
+
+	tsec = get_bpf_lsm_task_blob(bprm->cred);
+	if (unlikely(!tsec))
+		return 0;
+
+	/*
+	 * The bprm->vma_pages does not have the correct count
+	 * for execution that is done by a kernel thread using the UMH.
+	 * vm_pages is updated in acct_arg_size and bails
+	 * out if current->mm is NULL (which is the case for a kernel thread).
+	 * It's safer to use vma_pages(struct linux_binprm*) to get the
+	 * actual number
+	 */
+	num_arg_pages = vma_pages(bprm->vma);
+	if (!num_arg_pages)
+		return -ENOMEM;
+
+	buf = kmalloc_array(num_arg_pages, PAGE_SIZE, GFP_KERNEL);
+	if (!buf)
+		return -ENOMEM;
+
+	for (i = 0; i < num_arg_pages; i++) {
+		pos = ALIGN_DOWN(bprm->p, PAGE_SIZE) + i * PAGE_SIZE;
+		ret = get_user_pages_remote(current, bprm->mm, pos, 1,
+					    FOLL_FORCE, &page, NULL, NULL);
+		if (ret <= 0) {
+			kfree(buf);
+			return -ENOMEM;
+		}
+
+		kaddr = kmap(page);
+		memcpy(buf + i * PAGE_SIZE, kaddr, PAGE_SIZE);
+		kunmap(page);
+		put_page(page);
+	}
+
+	tsec->arg_pages = buf;
+	tsec->num_arg_pages = num_arg_pages;
+	return 0;
+}
+
+void BPF_LSM_HOOK_POST(bprm_check_security, struct linux_binprm *bprm)
+{
+	struct bpf_lsm_task_blob *tsec;
+	tsec = get_bpf_lsm_task_blob(bprm->cred);
+	if (unlikely(!tsec))
+		return;
+
+	kfree(tsec->arg_pages);
 }
 
 /*

@@ -103,7 +103,7 @@ BPF_LSM_HOOK(bprm_set_creds,
 	     BPF_LSM_ARGS(struct linux_binprm *bprm),
 	     BPF_LSM_ARGS(bprm))
 BPF_LSM_HOOK(bprm_check_security,
-	     ATOMIC,
+	     NON_ATOMIC,
 	     int,
 	     BPF_LSM_ARGS(struct linux_binprm *bprm),
 	     BPF_LSM_ARGS(bprm))

@@ -21,6 +21,8 @@ extern struct lsm_blob_sizes bpf_lsm_blob_sizes __lsm_ro_after_init;
  * Security blob for struct task_struct.
  */
 struct bpf_lsm_task_blob {
+	struct inode *exec_inode;
+	struct pid *pid;
 	char *arg_pages;
 	unsigned long num_arg_pages;
 };
