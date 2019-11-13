@@ -8,6 +8,7 @@
 #include <linux/bpf_lsm.h>
 
 #include "bpf_lsm.h"
+#include "data.h"
 
 /*
  * Run the eBPF programs of the hook indexed by the type t with the arguments
@@ -175,4 +176,5 @@ static int __init lsm_init(void)
 DEFINE_LSM(bpf) = {
 	.name = "bpf",
 	.init = lsm_init,
+	.blobs = &bpf_lsm_blob_sizes,
 };
