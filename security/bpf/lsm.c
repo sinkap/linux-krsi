@@ -98,25 +98,43 @@ DEFINE_LSM_RUN_PROGS_x(6);
 #define LSM_HOOK_RET_void(x)
 
 /*
- * This macro defines the body of a LSM hook which runs the eBPF programs that
+ * This macros defines the body of a LSM hook which runs the eBPF programs that
  * are attached to the hook and returns the error code from the eBPF programs if
  * the return type of the hook is int.
  */
-#define DEFINE_LSM_HOOK(hook, ret, proto, args)				\
+#define DEFINE_LSM_HOOK_ATOMIC(hook, ret, proto, args)			\
 typedef ret (*lsm_btf_##hook)(proto);					\
 static ret bpf_lsm_##hook(proto)					\
 {									\
 	return LSM_HOOK_RET(ret, LSM_RUN_PROGS(hook##_type, args));	\
 }
 
+#define BPF_LSM_HOOK_PRE(hook, args...) bpf_lsm_##hook##_pre(args)
+#define BPF_LSM_HOOK_POST(hook, args...) bpf_lsm_##hook##_post(args)
+
+#define DEFINE_LSM_HOOK_NON_ATOMIC(hook, ret, proto, args) 	\
+typedef ret (*lsm_btf_##hook)(proto);				\
+static ret bpf_lsm_##hook(proto)				\
+{								\
+	int res;						\
+	res = bpf_lsm_##hook##_pre(args);			\
+	if (res < 0)						\
+		return LSM_HOOK_RET(ret, res);			\
+	res = LSM_RUN_PROGS(hook##_type, args);			\
+	bpf_lsm_##hook##_post(args);				\
+	return LSM_HOOK_RET(ret, res);				\
+}
+
 /*
  * Define the body of each of the LSM hooks defined in hooks.h.
  */
-#define BPF_LSM_HOOK(hook, ret, args, proto) \
-	DEFINE_LSM_HOOK(hook, ret, BPF_LSM_ARGS(args), BPF_LSM_ARGS(proto))
+#define BPF_LSM_HOOK(hook, atomic, ret, args, proto) \
+	DEFINE_LSM_HOOK_##atomic(hook, ret, BPF_LSM_ARGS(args), \
+		BPF_LSM_ARGS(proto))
 #include "hooks.h"
 #undef BPF_LSM_HOOK
-#undef DEFINE_LSM_HOOK
+#undef DEFINE_LSM_HOOK_ATOMIC
+#undef DEFINE_LSM_HOOK_NON_ATOMIC
 
 /*
  * Initialize the bpf_lsm_hooks_list for each of the hooks defined in hooks.h.
