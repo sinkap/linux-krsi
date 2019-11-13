@@ -233,6 +233,10 @@ static struct security_hook_list lsm_hooks[] __lsm_ro_after_init = {
 static int __init lsm_init(void)
 {
 	security_add_hooks(lsm_hooks, ARRAY_SIZE(lsm_hooks), "bpf");
+	if (bpf_lsm_data_init()) {
+		pr_crit("impossible to initialize creds.\n");
+		return 1;
+	}
 	pr_info("eBPF and LSM are friends now.\n");
 	return 0;
 }
