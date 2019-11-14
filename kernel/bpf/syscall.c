@@ -1642,6 +1642,7 @@ bpf_prog_load_check_attach(enum bpf_prog_type prog_type,
 {
 	switch (prog_type) {
 	case BPF_PROG_TYPE_TRACING:
+	case BPF_PROG_TYPE_LSM:
 		if (btf_id > BTF_MAX_TYPE)
 			return -EINVAL;
 		break;

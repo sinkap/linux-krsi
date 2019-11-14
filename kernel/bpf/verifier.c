@@ -9504,7 +9504,71 @@ static void print_verification_stats(struct bpf_verifier_env *env)
 		env->peak_states, env->longest_mark_read_walk);
 }
 
-static int check_attach_btf_id(struct bpf_verifier_env *env)
+/*
+ * LSM hooks have a typedef associated with them. The BTF information for this
+ * type is used by the verifier to validate memory accesses made by the
+ * attached information.
+ *
+ * For example the:
+ *
+ *	int bprm_check_security(struct linux_binprm *brpm)
+ *
+ * has the following typedef:
+ *
+ *	typedef int (*lsm_btf_bprm_check_security)(struct linux_binprm *bprm);
+ */
+#define BTF_LSM_PREFIX "lsm_btf_"
+
+static inline int check_attach_btf_id_lsm(struct bpf_verifier_env *env)
+{
+	struct bpf_prog *prog = env->prog;
+	u32 btf_id = prog->aux->attach_btf_id;
+	const struct btf_type *t;
+	const char *tname;
+
+	if (!btf_id) {
+		verbose(env, "LSM programs must provide btf_id\n");
+		return -EINVAL;
+	}
+
+	t = btf_type_by_id(btf_vmlinux, btf_id);
+	if (!t) {
+		verbose(env, "attach_btf_id %u is invalid\n", btf_id);
+		return -EINVAL;
+	}
+
+	tname = btf_name_by_offset(btf_vmlinux, t->name_off);
+	if (!tname) {
+		verbose(env, "attach_btf_id %u doesn't have a name\n", btf_id);
+		return -EINVAL;
+	}
+
+	if (!btf_type_is_typedef(t)) {
+		verbose(env, "attach_btf_id %u is not a typedef\n", btf_id);
+		return -EINVAL;
+	}
+	if (strncmp(BTF_LSM_PREFIX, tname, sizeof(BTF_LSM_PREFIX) - 1)) {
+		verbose(env, "attach_btf_id %u points to wrong type name %s\n",
+			btf_id, tname);
+		return -EINVAL;
+	}
+
+	t = btf_type_by_id(btf_vmlinux, t->type);
+	/* should never happen in valid vmlinux build */
+	if (!btf_type_is_ptr(t))
+		return -EINVAL;
+	t = btf_type_by_id(btf_vmlinux, t->type);
+	/* should never happen in valid vmlinux build */
+	if (!btf_type_is_func_proto(t))
+		return -EINVAL;
+
+	tname += sizeof(BTF_LSM_PREFIX) - 1;
+	prog->aux->attach_func_name = tname;
+	prog->aux->attach_func_proto = t;
+	return 0;
+}
+
+static int check_attach_btf_id_tracing(struct bpf_verifier_env *env)
 {
 	struct bpf_prog *prog = env->prog;
 	struct bpf_prog *tgt_prog = prog->aux->linked_prog;
@@ -9518,9 +9582,6 @@ static int check_attach_btf_id(struct bpf_verifier_env *env)
 	struct btf *btf;
 	long addr;
 	u64 key;
-
-	if (prog->type != BPF_PROG_TYPE_TRACING)
-		return 0;
 
 	if (!btf_id) {
 		verbose(env, "Tracing programs must provide btf_id\n");
@@ -9656,6 +9717,20 @@ out:
 		return ret;
 	default:
 		return -EINVAL;
+	}
+}
+
+static int check_attach_btf_id(struct bpf_verifier_env *env)
+{
+	struct bpf_prog *prog = env->prog;
+
+	switch (prog->type) {
+	case BPF_PROG_TYPE_TRACING:
+		return check_attach_btf_id_tracing(env);
+	case BPF_PROG_TYPE_LSM:
+		return check_attach_btf_id_lsm(env);
+	default:
+		return 0;
 	}
 }
 
