@@ -5122,8 +5122,8 @@ int libbpf_prog_type_by_name(const char *name, enum bpf_prog_type *prog_type,
 	return -ESRCH;
 }
 
-static inline int __btf__typdef_with_prefix(struct btf *btf, const char *name,
-					    const char *prefix)
+static inline int __btf__type_with_prefix(struct btf *btf, const char *name,
+					  const char *prefix)
 {
 
 	size_t prefix_len = strlen(prefix);
@@ -5149,9 +5149,9 @@ int libbpf_find_vmlinux_btf_id(const char *name,
 	}
 
 	if (attach_type == BPF_TRACE_RAW_TP)
-		err = __btf__typdef_with_prefix(btf, name, BTF_TRACE_PREFIX);
+		err = __btf__type_with_prefix(btf, name, BTF_TRACE_PREFIX);
 	else if (attach_type == BPF_LSM_MAC)
-		err = __btf__typdef_with_prefix(btf, name, BTF_LSM_PREFIX);
+		err = __btf__type_with_prefix(btf, name, BTF_LSM_PREFIX);
 	else
 		err = btf__find_by_name_kind(btf, name, BTF_KIND_FUNC);
 
@@ -5500,6 +5500,18 @@ int bpf_link__destroy(struct bpf_link *link)
 struct bpf_link_fd {
 	struct bpf_link link; /* has to be at the top of struct */
 	int fd; /* hook FD */
+};
+
+/*
+ * The other attach types allow the link to be destroyed by using an ioctl or
+ * an operation on some file descriptor that describes the attachment. An LSM
+ * hook can have multiple programs attached to each hook, so the link needs to
+ * specify the program that must be detached when the link is destroyed.
+ */
+struct bpf_link_lsm {
+	struct bpf_link link;
+	int hook_fd;
+	int prog_fd;
 };
 
 static int bpf_link__destroy_perf_event(struct bpf_link *link)
@@ -5874,6 +5886,113 @@ struct bpf_link *bpf_program__attach_trace(struct bpf_program *prog)
 	}
 	link->fd = pfd;
 	return (struct bpf_link *)link;
+}
+
+
+static int bpf_link__destroy_lsm(struct bpf_link *link)
+{
+	struct bpf_link_lsm *ll = container_of(link, struct bpf_link_lsm, link);
+	char errmsg[STRERR_BUFSIZE];
+	int ret;
+
+	ret = bpf_prog_detach2(ll->prog_fd, ll->hook_fd, BPF_LSM_MAC);
+	if (ret < 0) {
+		ret = -errno;
+		pr_warn("failed to detach from hook: %s\n",
+			libbpf_strerror_r(ret, errmsg, sizeof(errmsg)));
+		return ret;
+	}
+	close(ll->hook_fd);
+	return 0;
+}
+
+static const char *__lsm_hook_name(const char *title)
+{
+
+	int i;
+
+	if (!title)
+		return ERR_PTR(-EINVAL);
+
+	for (i = 0; i < ARRAY_SIZE(section_names); i++) {
+		if (section_names[i].prog_type != BPF_PROG_TYPE_LSM)
+			continue;
+
+		if (strncmp(title, section_names[i].sec,
+			    section_names[i].len)) {
+			pr_warn("title for a LSM prog must begin with '%s'\n",
+				section_names[i].sec);
+			return ERR_PTR(-EINVAL);
+		}
+
+		return title + section_names[i].len;
+	}
+
+	pr_warn("could not find section information for BPF_PROG_TYPE_LSM\n");
+	return ERR_PTR(-ESRCH);
+}
+
+struct bpf_link *bpf_program__attach_lsm(struct bpf_program *prog)
+{
+	char hook_path[PATH_MAX] = "/sys/kernel/security/bpf/";
+	const char *title, *hook_name;
+	char errmsg[STRERR_BUFSIZE];
+	int prog_fd, target_fd, ret;
+	struct bpf_link_lsm *link;
+
+	title = bpf_program__title(prog, false);
+	if (IS_ERR(title)) {
+		pr_warn("could not determine title of the program\n");
+		return ERR_PTR(-EINVAL);
+	}
+
+	hook_name = __lsm_hook_name(title);
+	if (IS_ERR(hook_name)) {
+		pr_warn("could not determine LSM hook name from title '%s'\n",
+			title);
+		return ERR_PTR(-EINVAL);
+	}
+
+	prog_fd = bpf_program__fd(prog);
+	if (prog_fd < 0) {
+		pr_warn("program '%s': can't attach before loaded\n", title);
+		return ERR_PTR(-EINVAL);
+	}
+
+	link = malloc(sizeof(*link));
+	if (!link)
+		return ERR_PTR(-ENOMEM);
+	link->link.destroy = &bpf_link__destroy_lsm;
+
+	/* Attach the BPF program to the given hook */
+	strncat(hook_path, hook_name,
+		sizeof(hook_path) - (strlen(hook_path) + 1));
+	target_fd = open(hook_path, O_RDWR);
+	if (target_fd < 0) {
+		ret = -errno;
+		pr_warn("program '%s': failed to open to hook '%s': %s\n",
+			title, hook_path,
+			libbpf_strerror_r(ret, errmsg, sizeof(errmsg)));
+		return ERR_PTR(ret);
+	}
+
+	ret = bpf_prog_attach(prog_fd, target_fd, BPF_LSM_MAC,
+			      BPF_F_ALLOW_OVERRIDE);
+	if (ret < 0) {
+		ret = -errno;
+		pr_warn("program '%s': failed to attach to hook '%s': %s\n",
+			title, hook_name,
+			libbpf_strerror_r(ret, errmsg, sizeof(errmsg)));
+		goto error;
+	}
+
+	link->hook_fd = target_fd;
+	link->prog_fd = prog_fd;
+	return &link->link;
+
+error:
+	close(target_fd);
+	return ERR_PTR(ret);
 }
 
 enum bpf_perf_event_ret

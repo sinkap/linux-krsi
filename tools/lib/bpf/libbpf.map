@@ -213,4 +213,5 @@ LIBBPF_0.0.7 {
 	global:
 		bpf_program__is_lsm;
 		bpf_program__set_lsm;
+		bpf_program__attach_lsm;
 } LIBBPF_0.0.6;
