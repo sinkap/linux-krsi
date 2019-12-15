@@ -3180,6 +3180,9 @@ M:	KP Singh <kpsingh@chromium.org>
 L:	linux-security-module@vger.kernel.org
 L:	bpf@vger.kernel.org
 S:	Maintained
+F:	samples/bpf/bpf_lsm_event.h
+F:	samples/bpf/lsm_audit_env.c
+F:	samples/bpf/lsm_user.c
 F:	security/bpf/
 F:	include/linux/bpf_lsm.h
 F:	tools/testing/selftests/bpf/progs/lsm_mprotect_audit.c

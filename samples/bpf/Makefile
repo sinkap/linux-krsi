@@ -51,6 +51,7 @@ tprogs-y += task_fd_query
 tprogs-y += xdp_sample_pkts
 tprogs-y += ibumad
 tprogs-y += hbm
+tprogs-y += lsm
 
 # Libbpf dependencies
 LIBBPF = $(TOOLS_PATH)/lib/bpf/libbpf.a
@@ -60,6 +61,7 @@ TRACE_HELPERS := ../../tools/testing/selftests/bpf/trace_helpers.o
 
 fds_example-objs := fds_example.o
 sockex1-objs := sockex1_user.o
+lsm-objs := lsm_user.o $(TRACE_HELPERS)
 sockex2-objs := sockex2_user.o
 sockex3-objs := bpf_load.o sockex3_user.o
 tracex1-objs := bpf_load.o tracex1_user.o
@@ -111,6 +113,7 @@ hbm-objs := bpf_load.o hbm.o $(CGROUP_HELPERS)
 # Tell kbuild to always build the programs
 always := $(tprogs-y)
 always += sockex1_kern.o
+always += lsm_audit_env.o
 always += sockex2_kern.o
 always += sockex3_kern.o
 always += tracex1_kern.o
