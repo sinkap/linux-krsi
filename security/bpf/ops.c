@@ -344,14 +344,24 @@ static const struct bpf_func_proto *get_bpf_func_proto(enum bpf_func_id
 		func_id, const struct bpf_prog *prog)
 {
 	switch (func_id) {
+	// Generic BPF helpers.
 	case BPF_FUNC_map_lookup_elem:
 		return &bpf_map_lookup_elem_proto;
 	case BPF_FUNC_get_current_pid_tgid:
 		return &bpf_get_current_pid_tgid_proto;
-	case BPF_FUNC_bpf_lsm_get_env_var:
-		return &bpf_lsm_get_env_var_proto;
+	case BPF_FUNC_get_current_uid_gid:
+		return &bpf_get_current_uid_gid_proto;
+	case BPF_FUNC_get_current_comm:
+		return &bpf_get_current_comm_proto;
+	case BPF_FUNC_probe_read_user_str:
+		return &bpf_probe_read_user_str_proto;
+	case BPF_FUNC_probe_read_kernel_str:
+		return &bpf_probe_read_kernel_str_proto;
+	// New helpers defined by the BPF LSM.
 	case BPF_FUNC_lsm_event_output:
 		return &bpf_lsm_event_output_proto;
+	case BPF_FUNC_bpf_lsm_get_env_var:
+		return &bpf_lsm_get_env_var_proto;
 	default:
 		return NULL;
 	}

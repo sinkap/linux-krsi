@@ -2985,7 +2985,7 @@ union bpf_attr {
 	FN(probe_read_user_str),	\
 	FN(probe_read_kernel_str),	\
 	FN(lsm_event_output),		\
-	FN(bpf_lsm_get_env_var),
+	FN(bpf_lsm_get_env_var),	\
 
 /* integer value in 'imm' field of BPF_CALL instruction selects which helper
  * function eBPF program intends to call

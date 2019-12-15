@@ -1225,6 +1225,10 @@ extern const struct bpf_func_proto bpf_strtol_proto;
 extern const struct bpf_func_proto bpf_strtoul_proto;
 extern const struct bpf_func_proto bpf_tcp_sock_proto;
 
+/* bpf_probe_read * protos */
+extern const struct bpf_func_proto bpf_probe_read_kernel_str_proto;
+extern const struct bpf_func_proto bpf_probe_read_user_str_proto;
+
 /* Shared helpers among cBPF and eBPF. */
 void bpf_user_rnd_init_once(void);
 u64 bpf_user_rnd_u32(u64 r1, u64 r2, u64 r3, u64 r4, u64 r5);
