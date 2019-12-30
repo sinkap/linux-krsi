@@ -228,6 +228,7 @@ struct bpf_program {
 	enum bpf_attach_type expected_attach_type;
 	__u32 attach_btf_id;
 	__u32 attach_prog_fd;
+	__u32 lsm_hook_idx;
 	void *func_info;
 	__u32 func_info_rec_size;
 	__u32 func_info_cnt;
@@ -2352,7 +2353,9 @@ static int bpf_object__finalize_btf(struct bpf_object *obj)
 
 static inline bool libbpf_prog_needs_vmlinux_btf(struct bpf_program *prog)
 {
-	if (prog->type == BPF_PROG_TYPE_STRUCT_OPS)
+
+	if (prog->type == BPF_PROG_TYPE_LSM ||
+	    prog->type == BPF_PROG_TYPE_STRUCT_OPS)
 		return true;
 
 	/* BPF_PROG_TYPE_TRACING programs which do not attach to other programs
@@ -4835,7 +4838,10 @@ load_program(struct bpf_program *prog, struct bpf_insn *insns, int insns_cnt,
 	load_attr.insns = insns;
 	load_attr.insns_cnt = insns_cnt;
 	load_attr.license = license;
-	if (prog->type == BPF_PROG_TYPE_STRUCT_OPS) {
+
+	if (prog->type == BPF_PROG_TYPE_LSM) {
+		load_attr.lsm_hook_idx = prog->lsm_hook_idx;
+	} else if (prog->type == BPF_PROG_TYPE_STRUCT_OPS) {
 		load_attr.attach_btf_id = prog->attach_btf_id;
 	} else if (prog->type == BPF_PROG_TYPE_TRACING ||
 		   prog->type == BPF_PROG_TYPE_EXT) {
@@ -4845,6 +4851,7 @@ load_program(struct bpf_program *prog, struct bpf_insn *insns, int insns_cnt,
 		load_attr.kern_version = kern_version;
 		load_attr.prog_ifindex = prog->prog_ifindex;
 	}
+
 	/* if .BTF.ext was loaded, kernel supports associated BTF for prog */
 	if (prog->obj->btf_ext)
 		btf_fd = bpf_object__btf_fd(prog->obj);
@@ -4914,10 +4921,11 @@ out:
 }
 
 static int libbpf_find_attach_btf_id(struct bpf_program *prog);
+static __s32 find_lsm_hook_idx(struct bpf_program *prog);
 
 int bpf_program__load(struct bpf_program *prog, char *license, __u32 kern_ver)
 {
-	int err = 0, fd, i, btf_id;
+	int err = 0, fd, i, btf_id, idx;
 
 	if (prog->type == BPF_PROG_TYPE_TRACING ||
 	    prog->type == BPF_PROG_TYPE_EXT) {
@@ -4925,6 +4933,13 @@ int bpf_program__load(struct bpf_program *prog, char *license, __u32 kern_ver)
 		if (btf_id <= 0)
 			return btf_id;
 		prog->attach_btf_id = btf_id;
+	}
+
+	if (prog->type == BPF_PROG_TYPE_LSM) {
+		idx = find_lsm_hook_idx(prog);
+		if (idx < 0)
+			return idx;
+		prog->lsm_hook_idx = idx;
 	}
 
 	if (prog->instances.nr < 0 || !prog->instances.fds) {
@@ -5083,6 +5098,8 @@ __bpf_object__open(const char *path, const void *obj_buf, size_t obj_buf_sz,
 
 		if (prog->type != BPF_PROG_TYPE_UNSPEC)
 			continue;
+
+
 
 		err = libbpf_prog_type_by_name(prog->section_name, &prog_type,
 					       &attach_type);
@@ -6160,6 +6177,7 @@ bool bpf_program__is_##NAME(const struct bpf_program *prog)	\
 }								\
 
 BPF_PROG_TYPE_FNS(socket_filter, BPF_PROG_TYPE_SOCKET_FILTER);
+BPF_PROG_TYPE_FNS(lsm, BPF_PROG_TYPE_LSM);
 BPF_PROG_TYPE_FNS(kprobe, BPF_PROG_TYPE_KPROBE);
 BPF_PROG_TYPE_FNS(sched_cls, BPF_PROG_TYPE_SCHED_CLS);
 BPF_PROG_TYPE_FNS(sched_act, BPF_PROG_TYPE_SCHED_ACT);
@@ -6226,6 +6244,8 @@ static struct bpf_link *attach_raw_tp(const struct bpf_sec_def *sec,
 				      struct bpf_program *prog);
 static struct bpf_link *attach_trace(const struct bpf_sec_def *sec,
 				     struct bpf_program *prog);
+static struct bpf_link *attach_lsm(const struct bpf_sec_def *sec,
+				   struct bpf_program *prog);
 
 struct bpf_sec_def {
 	const char *sec;
@@ -6272,6 +6292,9 @@ static const struct bpf_sec_def section_defs[] = {
 	SEC_DEF("freplace/", EXT,
 		.is_attach_btf = true,
 		.attach_fn = attach_trace),
+	SEC_DEF("lsm/", LSM,
+		.expected_attach_type = BPF_LSM_MAC,
+		.attach_fn = attach_lsm),
 	BPF_PROG_SEC("xdp",			BPF_PROG_TYPE_XDP),
 	BPF_PROG_SEC("perf_event",		BPF_PROG_TYPE_PERF_EVENT),
 	BPF_PROG_SEC("lwt_in",			BPF_PROG_TYPE_LWT_IN),
@@ -6531,6 +6554,44 @@ invalid_prog:
 		map->name, prog->name, prog->section_name, prog->type,
 		prog->attach_btf_id, prog->expected_attach_type, name);
 	return -EINVAL;
+}
+
+static __s32 find_lsm_hook_idx(struct bpf_program *prog)
+{
+	struct btf *btf = prog->obj->btf_vmlinux;
+	const char *name = prog->section_name;
+	const struct bpf_sec_def *sec_def;
+	const struct btf_type *t;
+	struct btf_member *m;
+	__s32 type_id;
+	int i;
+
+	sec_def = find_sec_def(name);
+	if (!sec_def)
+		return -ESRCH;
+
+	name += sec_def->len;
+
+	type_id = btf__find_by_name_kind(btf, "security_hook_heads",
+					 BTF_KIND_STRUCT);
+	if (type_id < 0) {
+		pr_warn("security_hook_heads not found in vmlinux BTF\n");
+		return type_id;
+	}
+
+	t = btf__type_by_id(btf, type_id);
+	if (!t) {
+		pr_warn("Can't find type for security_hook_heads: %u\n", type_id);
+		return -ESRCH;
+	}
+
+	for (m = btf_members(t), i = 0; i < btf_vlen(t); i++, m++) {
+		if (!strcmp(btf__name_by_offset(btf, m->name_off), name))
+			return i;
+	}
+
+	pr_warn("Can't find lsm_hook_idx for %s in security_hook_heads\n", name);
+	return -ESRCH;
 }
 
 #define BTF_TRACE_PREFIX "btf_trace_"
@@ -7370,6 +7431,43 @@ static struct bpf_link *attach_trace(const struct bpf_sec_def *sec,
 				     struct bpf_program *prog)
 {
 	return bpf_program__attach_trace(prog);
+}
+
+struct bpf_link *bpf_program__attach_lsm(struct bpf_program *prog)
+{
+	char errmsg[STRERR_BUFSIZE];
+	struct bpf_link_fd *link;
+	int prog_fd, pfd;
+
+	prog_fd = bpf_program__fd(prog);
+	if (prog_fd < 0) {
+		pr_warn("program '%s': can't attach before loaded\n",
+			bpf_program__title(prog, false));
+		return ERR_PTR(-EINVAL);
+	}
+
+	link = calloc(1, sizeof(*link));
+	if (!link)
+		return ERR_PTR(-ENOMEM);
+	link->link.detach = &bpf_link__detach_fd;
+
+	pfd = bpf_prog_attach(prog_fd, 0, BPF_LSM_MAC, 0);
+	if (pfd < 0) {
+		pfd = -errno;
+		free(link);
+		pr_warn("program '%s': failed to attach: %s\n",
+			bpf_program__title(prog, false),
+			libbpf_strerror_r(pfd, errmsg, sizeof(errmsg)));
+		return ERR_PTR(pfd);
+	}
+	link->fd = pfd;
+	return (struct bpf_link *)link;
+}
+
+static struct bpf_link *attach_lsm(const struct bpf_sec_def *sec,
+				   struct bpf_program *prog)
+{
+	return bpf_program__attach_lsm(prog);
 }
 
 struct bpf_link *bpf_program__attach(struct bpf_program *prog)
