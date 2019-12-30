@@ -223,4 +223,7 @@ LIBBPF_0.0.7 {
 		bpf_program__attach;
 		bpf_program__name;
 		btf__align_of;
+		bpf_program__is_lsm;
+		bpf_program__set_lsm;
+		bpf_program__attach_lsm;
 } LIBBPF_0.0.6;
