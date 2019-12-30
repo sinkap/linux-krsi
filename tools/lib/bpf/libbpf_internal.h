@@ -85,6 +85,12 @@ static inline bool libbpf_validate_opts(const char *opts,
 	return true;
 }
 
+static inline bool libbpf_need_attach_prog_btf(enum bpf_prog_type prog_type)
+{
+	return (prog_type == BPF_PROG_TYPE_TRACING ||
+		prog_type == BPF_PROG_TYPE_LSM);
+}
+
 #define OPTS_VALID(opts, type)						      \
 	(!(opts) || libbpf_validate_opts((const char *)opts,		      \
 					 offsetofend(struct type,	      \
