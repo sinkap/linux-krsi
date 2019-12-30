@@ -49,6 +49,9 @@ void bpf_lsm_srcu_read_unlock(int idx);
 	RC;							\
 })
 
+s32 bpf_lsm_type_by_offset(struct btf *btf, u32 offset);
+const char *bpf_lsm_name_by_offset(struct btf *btf, u32 offset);
+
 #else
 
 #define BPF_LSM_INT_HOOKS(RC, FUNC, ...) (RC)
@@ -58,8 +61,15 @@ static inline int bpf_lsm_srcu_read_lock(void)
 {
 	return 0;
 }
-
 static inline void bpf_lsm_srcu_read_unlock(int idx) {}
+static inline s32 bpf_lsm_type_by_offset(struct btf *btf, u32 offset)
+{
+	return -EINVAL;
+}
+static inline const char *bpf_lsm_name_by_offset(struct btf *btf, u32 offset)
+{
+	return PTR_ERR(-EINVAL);
+}
 #endif /* CONFIG_SECURITY_BPF */
 
 #endif /* _LINUX_BPF_LSM_H */
