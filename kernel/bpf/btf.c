@@ -441,6 +441,18 @@ const struct btf_type *btf_type_resolve_func_ptr(const struct btf *btf,
 	return NULL;
 }
 
+const struct btf_type *btf_type_by_name_kind(
+	struct btf *btf, const char *name, u8 kind)
+{
+	s32 type_id;
+
+	type_id = btf_find_by_name_kind(btf, name, kind);
+	if (type_id < 0)
+		return ERR_PTR(type_id);
+
+	return btf_type_by_id(btf, type_id);
+}
+
 /* Types that act only as a source, not sink or intermediate
  * type when resolving.
  */
