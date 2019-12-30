@@ -15,6 +15,7 @@ struct btf_type;
 union bpf_attr;
 
 extern const struct file_operations btf_fops;
+extern struct btf *btf_vmlinux;
 
 void btf_put(struct btf *btf);
 int btf_new_fd(const union bpf_attr *attr);
@@ -66,6 +67,8 @@ const struct btf_type *
 btf_resolve_size(const struct btf *btf, const struct btf_type *type,
 		 u32 *type_size, const struct btf_type **elem_type,
 		 u32 *total_nelems);
+const struct btf_type *btf_type_by_name_kind(
+	struct btf *btf, const char *name, u8 kind);
 
 #define for_each_member(i, struct_type, member)			\
 	for (i = 0, member = btf_type_member(struct_type);	\
@@ -141,6 +144,11 @@ static inline const struct btf_type *btf_type_by_id(const struct btf *btf,
 						    u32 type_id)
 {
 	return NULL;
+}
+static inline const struct btf_type *btf_type_by_name_kind(
+	struct btf *btf, const char *name, u8 kind)
+{
+	return ERR_PTR(-ENOSYS);
 }
 static inline const char *btf_name_by_offset(const struct btf *btf,
 					     u32 offset)
