@@ -86,6 +86,7 @@ struct bpf_load_program_attr {
 		__u32 prog_ifindex;
 		__u32 attach_btf_id;
 	};
+	__u32 lsm_hook_index;
 	__u32 prog_btf_fd;
 	__u32 func_info_rec_size;
 	const void *func_info;
