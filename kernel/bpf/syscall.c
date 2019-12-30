@@ -4,6 +4,7 @@
 #include <linux/bpf.h>
 #include <linux/bpf_trace.h>
 #include <linux/bpf_lirc.h>
+#include <linux/bpf_lsm.h>
 #include <linux/btf.h>
 #include <linux/syscalls.h>
 #include <linux/slab.h>
@@ -1674,6 +1675,7 @@ bpf_prog_load_check_attach(enum bpf_prog_type prog_type,
 {
 	switch (prog_type) {
 	case BPF_PROG_TYPE_TRACING:
+	case BPF_PROG_TYPE_LSM:
 		if (btf_id > BTF_MAX_TYPE)
 			return -EINVAL;
 		break;
@@ -1948,6 +1950,44 @@ out_put_prog:
 	return err;
 }
 
+static int bpf_lsm_prog_release(struct inode *inode, struct file *filp)
+{
+	struct bpf_prog *prog = filp->private_data;
+
+	WARN_ON_ONCE(bpf_lsm_detach(prog));
+	bpf_prog_put(prog);
+	return 0;
+}
+
+static const struct file_operations bpf_lsm_prog_fops = {
+	.release	= bpf_lsm_prog_release,
+	.read		= bpf_dummy_read,
+	.write		= bpf_dummy_write,
+};
+
+static int bpf_lsm_prog_attach(struct bpf_prog *prog)
+{
+	int ret;
+
+	if (prog->expected_attach_type != BPF_LSM_MAC)
+		return -EINVAL;
+
+	/* The attach increments the references to the program which is
+	 * deceremented on detach as a part of bpf_lsm_hook_free.
+	 */
+	ret = bpf_lsm_attach(prog);
+	if (ret)
+		return ret;
+
+	ret = anon_inode_getfd("bpf-lsm-prog", &bpf_lsm_prog_fops,
+				prog, O_CLOEXEC);
+	if (ret < 0) {
+		bpf_lsm_detach(prog);
+		return ret;
+	}
+	return 0;
+}
+
 struct bpf_raw_tracepoint {
 	struct bpf_raw_event_map *btp;
 	struct bpf_prog *prog;
@@ -2164,7 +2204,7 @@ static int bpf_prog_attach(const union bpf_attr *attr)
 		ret = lirc_prog_attach(attr, prog);
 		break;
 	case BPF_PROG_TYPE_LSM:
-		ret = -EINVAL;
+		ret = bpf_lsm_prog_attach(prog);
 		break;
 	case BPF_PROG_TYPE_FLOW_DISSECTOR:
 		ret = skb_flow_dissector_bpf_prog_attach(attr, prog);
