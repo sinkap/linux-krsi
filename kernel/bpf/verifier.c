@@ -19,6 +19,7 @@
 #include <linux/sort.h>
 #include <linux/perf_event.h>
 #include <linux/ctype.h>
+#include <linux/bpf_lsm.h>
 
 #include "disasm.h"
 
@@ -6342,8 +6343,31 @@ static int check_ld_abs(struct bpf_verifier_env *env, struct bpf_insn *insn)
 static int check_return_code(struct bpf_verifier_env *env)
 {
 	struct tnum enforce_attach_type_range = tnum_unknown;
+	const struct bpf_prog *prog = env->prog;
 	struct bpf_reg_state *reg;
 	struct tnum range = tnum_range(0, 1);
+
+	int err;
+
+	/* The struct_ops func-ptr's return type could be "void" */
+	if (env->prog->type == BPF_PROG_TYPE_LSM &&
+	    !prog->aux->attach_func_proto->type)
+		return 0;
+
+	/* eBPF calling convetion is such that R0 is used
+	 * to return the value from eBPF program.
+	 * Make sure that it's readable at this time
+	 * of bpf_exit, which means that program wrote
+	 * something into it earlier
+	 */
+	err = check_reg_arg(env, BPF_REG_0, SRC_OP);
+	if (err)
+		return err;
+
+	if (is_pointer_value(env, BPF_REG_0)) {
+		verbose(env, "R0 leaks addr as return value\n");
+		return -EACCES;
+	}
 
 	switch (env->prog->type) {
 	case BPF_PROG_TYPE_CGROUP_SOCK_ADDR:
@@ -8009,21 +8033,6 @@ static int do_check(struct bpf_verifier_env *env)
 				if (err)
 					return err;
 
-				/* eBPF calling convetion is such that R0 is used
-				 * to return the value from eBPF program.
-				 * Make sure that it's readable at this time
-				 * of bpf_exit, which means that program wrote
-				 * something into it earlier
-				 */
-				err = check_reg_arg(env, BPF_REG_0, SRC_OP);
-				if (err)
-					return err;
-
-				if (is_pointer_value(env, BPF_REG_0)) {
-					verbose(env, "R0 leaks addr as return value\n");
-					return -EACCES;
-				}
-
 				err = check_return_code(env);
 				if (err)
 					return err;
@@ -9504,7 +9513,45 @@ static void print_verification_stats(struct bpf_verifier_env *env)
 		env->peak_states, env->longest_mark_read_walk);
 }
 
-static int check_attach_btf_id(struct bpf_verifier_env *env)
+static inline int check_attach_btf_id_lsm(struct bpf_verifier_env *env)
+{
+	struct bpf_prog *prog = env->prog;
+	u32 btf_id = prog->aux->attach_btf_id;
+	const struct btf_type *t;
+	s32 type_id;
+	const char *tname;
+
+	if (!btf_id) {
+		verbose(env, "LSM programs must provide btf_id\n");
+		return -EINVAL;
+	}
+
+	type_id = bpf_lsm_type_by_offset(btf_vmlinux, btf_id);
+	if (type_id < 0) {
+		verbose(env, "unable to find security_list_option for offset %u in security_hook_heads\n", btf_id);
+		return type_id;
+	}
+
+	t = btf_type_by_id(btf_vmlinux, type_id);
+	if (unlikely(!t))
+		return -EINVAL;
+
+	tname = bpf_lsm_name_by_offset(btf_vmlinux, t->name_off);
+	if (!tname) {
+		verbose(env, "could not get hook name for offset %u\n", btf_id);
+		return -EINVAL;
+	}
+
+	/* should never happen in valid vmlinux build */
+	if (!btf_type_is_func_proto(t))
+		return -EINVAL;
+
+	prog->aux->attach_func_name = tname;
+	prog->aux->attach_func_proto = t;
+	return 0;
+}
+
+static int check_attach_btf_id_tracing(struct bpf_verifier_env *env)
 {
 	struct bpf_prog *prog = env->prog;
 	struct bpf_prog *tgt_prog = prog->aux->linked_prog;
@@ -9518,9 +9565,6 @@ static int check_attach_btf_id(struct bpf_verifier_env *env)
 	struct btf *btf;
 	long addr;
 	u64 key;
-
-	if (prog->type != BPF_PROG_TYPE_TRACING)
-		return 0;
 
 	if (!btf_id) {
 		verbose(env, "Tracing programs must provide btf_id\n");
@@ -9659,6 +9703,20 @@ out:
 		return ret;
 	default:
 		return -EINVAL;
+	}
+}
+
+static int check_attach_btf_id(struct bpf_verifier_env *env)
+{
+	struct bpf_prog *prog = env->prog;
+
+	switch (prog->type) {
+	case BPF_PROG_TYPE_TRACING:
+		return check_attach_btf_id_tracing(env);
+	case BPF_PROG_TYPE_LSM:
+		return check_attach_btf_id_lsm(env);
+	default:
+		return 0;
 	}
 }
 
