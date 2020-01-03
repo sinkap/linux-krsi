@@ -14,22 +14,6 @@ static struct hlist_head trampoline_table[TRAMPOLINE_TABLE_SIZE];
 /* serializes access to trampoline_table */
 static DEFINE_MUTEX(trampoline_mutex);
 
-void *bpf_jit_alloc_exec_page(void)
-{
-	void *image;
-
-	image = bpf_jit_alloc_exec(PAGE_SIZE);
-	if (!image)
-		return NULL;
-
-	set_vm_flush_reset_perms(image);
-	/* Keep image as writeable. The alternative is to keep flipping ro/rw
-	 * everytime new program is attached or detached.
-	 */
-	set_memory_x((long)image, 1);
-	return image;
-}
-
 struct bpf_trampoline *bpf_trampoline_lookup(u64 key)
 {
 	struct bpf_trampoline *tr;
@@ -50,12 +34,13 @@ struct bpf_trampoline *bpf_trampoline_lookup(u64 key)
 		goto out;
 
 	/* is_root was checked earlier. No need for bpf_jit_charge_modmem() */
-	image = bpf_jit_alloc_exec_page();
+	image = bpf_jit_alloc_exec(2 * PAGE_SIZE);
 	if (!image) {
 		kfree(tr);
 		tr = NULL;
 		goto out;
 	}
+	set_vm_flush_reset_perms(image);
 
 	tr->key = key;
 	INIT_HLIST_NODE(&tr->hlist);
@@ -125,14 +110,14 @@ static int register_fentry(struct bpf_trampoline *tr, void *new_addr)
 }
 
 /* Each call __bpf_prog_enter + call bpf_func + call __bpf_prog_exit is ~50
- * bytes on x86.  Pick a number to fit into PAGE_SIZE / 2
+ * bytes on x86.  Pick a number to fit into PAGE_SIZE.
  */
 #define BPF_MAX_TRAMP_PROGS 40
 
 static int bpf_trampoline_update(struct bpf_trampoline *tr)
 {
-	void *old_image = tr->image + ((tr->selector + 1) & 1) * PAGE_SIZE/2;
-	void *new_image = tr->image + (tr->selector & 1) * PAGE_SIZE/2;
+	void *old_image = tr->image + ((tr->selector + 1) & 1) * PAGE_SIZE;
+	void *new_image = tr->image + (tr->selector & 1) * PAGE_SIZE;
 	struct bpf_prog *progs_to_run[BPF_MAX_TRAMP_PROGS];
 	int fentry_cnt = tr->progs_cnt[BPF_TRAMP_FENTRY];
 	int fexit_cnt = tr->progs_cnt[BPF_TRAMP_FEXIT];
@@ -160,12 +145,28 @@ static int bpf_trampoline_update(struct bpf_trampoline *tr)
 	if (fexit_cnt)
 		flags = BPF_TRAMP_F_CALL_ORIG | BPF_TRAMP_F_SKIP_FRAME;
 
+
+	/* First make the page non-executable and then make it RW to avoid it
+	 * from being being W+X.
+	 */
+	set_memory_nx((unsigned long)new_image, 1);
+	set_memory_rw((unsigned long)new_image, 1);
+
 	err = arch_prepare_bpf_trampoline(new_image, &tr->func.model, flags,
 					  fentry, fentry_cnt,
 					  fexit, fexit_cnt,
 					  tr->func.addr);
 	if (err)
 		goto out;
+
+	/* First make the page read-only, and only then make it executable to
+	 * prevent it from being W+X in between.
+	 */
+	set_memory_ro((unsigned long)new_image, 1);
+	/* More checks can be done here to ensure that nothing was changed
+	 * between arch_prepare_bpf_trampoline and set_memory_ro.
+	 */
+	set_memory_x((unsigned long)new_image, 1);
 
 	if (tr->selector)
 		/* progs already running at this address */

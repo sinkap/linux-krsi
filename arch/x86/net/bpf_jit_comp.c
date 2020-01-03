@@ -1527,7 +1527,7 @@ int arch_prepare_bpf_trampoline(void *image, struct btf_func_model *m, u32 flags
 	 * Another half is an area for next trampoline.
 	 * Make sure the trampoline generation logic doesn't overflow.
 	 */
-	if (WARN_ON_ONCE(prog - (u8 *)image > PAGE_SIZE / 2 - BPF_INSN_SAFETY))
+	if (WARN_ON_ONCE(prog - (u8 *)image > PAGE_SIZE - BPF_INSN_SAFETY))
 		return -EFAULT;
 	return 0;
 }

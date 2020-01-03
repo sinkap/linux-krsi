@@ -93,13 +93,34 @@ int __weak arch_prepare_bpf_dispatcher(void *image, s64 *funcs, int num_funcs)
 static int bpf_dispatcher_prepare(struct bpf_dispatcher *d, void *image)
 {
 	s64 ips[BPF_DISPATCHER_MAX] = {}, *ipsp = &ips[0];
-	int i;
+	int i, ret;
 
 	for (i = 0; i < BPF_DISPATCHER_MAX; i++) {
 		if (d->progs[i].prog)
 			*ipsp++ = (s64)(uintptr_t)d->progs[i].prog->bpf_func;
 	}
-	return arch_prepare_bpf_dispatcher(image, &ips[0], d->num_progs);
+
+	/* First make the page non-executable and then make it RW to avoid it
+	 * from being W+X. While x86's implementation of module_alloc
+	 * allocates memory as non-executable, not all implementations do so.
+	 * Till these are fixed, explicitly mark the memory as NX.
+	 */
+	set_memory_nx((unsigned long)image, 1);
+	set_memory_rw((unsigned long)image, 1);
+
+	ret = arch_prepare_bpf_dispatcher(image, &ips[0], d->num_progs);
+	if (ret)
+		return ret;
+
+	/* First make the page read-only, and only then make it executable to
+	 * prevent it from being W+X in between.
+	 */
+	set_memory_ro((unsigned long)image, 1);
+	/* More checks can be done here to ensure that nothing was changed
+	 * between arch_prepare_bpf_dispatcher and set_memory_ro.
+	 */
+	set_memory_x((unsigned long)image, 1);
+	return 0;
 }
 
 static void bpf_dispatcher_update(struct bpf_dispatcher *d, int prev_num_progs)
@@ -113,7 +134,7 @@ static void bpf_dispatcher_update(struct bpf_dispatcher *d, int prev_num_progs)
 		noff = 0;
 	} else {
 		old = d->image + d->image_off;
-		noff = d->image_off ^ (PAGE_SIZE / 2);
+		noff = d->image_off ^ PAGE_SIZE;
 	}
 
 	new = d->num_progs ? d->image + noff : NULL;
@@ -140,10 +161,11 @@ void bpf_dispatcher_change_prog(struct bpf_dispatcher *d, struct bpf_prog *from,
 
 	mutex_lock(&d->mutex);
 	if (!d->image) {
-		d->image = bpf_jit_alloc_exec_page();
+		d->image = bpf_jit_alloc_exec(2 * PAGE_SIZE);
 		if (!d->image)
 			goto out;
 	}
+	set_vm_flush_reset_perms(d->image);
 
 	prev_num_progs = d->num_progs;
 	changed |= bpf_dispatcher_remove_prog(d, from);
