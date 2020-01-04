@@ -2022,6 +2022,16 @@ void module_enable_ro(const struct module *mod, bool after_init)
 		frob_ro_after_init(&mod->core_layout, set_memory_ro);
 }
 
+void module_mem_enable_ro(void *addr, int numpages)
+{
+	set_memory_ro((unsigned long)(addr) & PAGE_MASK, numpages);
+}
+
+void module_mem_disable_ro(void *addr, int numpages)
+{
+	set_memory_rw((unsigned long)(addr) & PAGE_MASK, numpages);
+}
+
 static void module_enable_nx(const struct module *mod)
 {
 	frob_rodata(&mod->core_layout, set_memory_nx);
@@ -2029,6 +2039,11 @@ static void module_enable_nx(const struct module *mod)
 	frob_writable_data(&mod->core_layout, set_memory_nx);
 	frob_rodata(&mod->init_layout, set_memory_nx);
 	frob_writable_data(&mod->init_layout, set_memory_nx);
+}
+
+void module_mem_enable_nx(void *addr, int numpages)
+{
+	set_memory_nx((unsigned long)(addr) & PAGE_MASK, numpages);
 }
 
 /* Iterate through all modules and set each module's text as RW */
@@ -2081,6 +2096,10 @@ static void module_enable_x(const struct module *mod)
 {
 	frob_text(&mod->core_layout, set_memory_x);
 	frob_text(&mod->init_layout, set_memory_x);
+}
+void module_mem_enable_x(void *addr, int numpages)
+{
+	set_memory_x((unsigned long)(addr) & PAGE_MASK, numpages);
 }
 #else /* !CONFIG_ARCH_HAS_STRICT_MODULE_RWX */
 static void module_enable_nx(const struct module *mod) { }

@@ -847,18 +847,29 @@ extern int module_sysfs_initialized;
 /* BELOW HERE ALL THESE ARE OBSOLETE AND WILL VANISH */
 
 #define __MODULE_STRING(x) __stringify(x)
-
+#ifdef CONFIG_ARCH_HAS_STRICT_MODULE_RWX
 #ifdef CONFIG_STRICT_MODULE_RWX
 extern void set_all_modules_text_rw(void);
 extern void set_all_modules_text_ro(void);
 extern void module_enable_ro(const struct module *mod, bool after_init);
 extern void module_disable_ro(const struct module *mod);
-#else
+extern void module_mem_enable_ro(void *addr, int numpages);
+extern void module_mem_enable_nx(void *addr, int numpages);
+extern void module_mem_disable_ro(void *addr, int numpages);
+#else /* !CONFIG_STRICT_MODULE_RWX */
 static inline void set_all_modules_text_rw(void) { }
 static inline void set_all_modules_text_ro(void) { }
 static inline void module_enable_ro(const struct module *mod, bool after_init) { }
 static inline void module_disable_ro(const struct module *mod) { }
-#endif
+static inline void module_mem_enable_nx(void *addr, int numpages) { }
+static inline void module_mem_enable_ro(void *addr, int numpages) { }
+static inline void module_mem_disable_ro(void *addr, int numpages) { }
+#endif /* CONFIG_STRICT_MODULE_RWX */
+extern void module_mem_enable_x(void *addr, int numpages);
+#else /* !CONFIG_ARCH_HAS_STRICT_MODULE_RWX */
+static inline void module_mem_enable_nx(void *addr, int numpages) { }
+static inline void module_mem_enable_x(void *addr, int numpages) { }
+#endif /* CONFIG_ARCH_HAS_STRICT_MODULE_RWX */
 
 #ifdef CONFIG_GENERIC_BUG
 void module_bug_finalize(const Elf_Ehdr *, const Elf_Shdr *,
