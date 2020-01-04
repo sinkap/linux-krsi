@@ -149,8 +149,11 @@ static int bpf_trampoline_update(struct bpf_trampoline *tr)
 	/* First make the page non-executable and then make it RW to avoid it
 	 * from being being W+X.
 	 */
+	trace_printk("doing set_memory_nx\n");
 	set_memory_nx((unsigned long)new_image, 1);
+	trace_printk("set_memory_nx done, doing set_memory_rw\n");
 	set_memory_rw((unsigned long)new_image, 1);
+	trace_printk("set_memory_rw done\n");
 
 	err = arch_prepare_bpf_trampoline(new_image, &tr->func.model, flags,
 					  fentry, fentry_cnt,
@@ -159,6 +162,7 @@ static int bpf_trampoline_update(struct bpf_trampoline *tr)
 	if (err)
 		goto out;
 
+	trace_printk("doing set_memory_ro\n");
 	/* First make the page read-only, and only then make it executable to
 	 * prevent it from being W+X in between.
 	 */
@@ -166,7 +170,9 @@ static int bpf_trampoline_update(struct bpf_trampoline *tr)
 	/* More checks can be done here to ensure that nothing was changed
 	 * between arch_prepare_bpf_trampoline and set_memory_ro.
 	 */
+	trace_printk("set_memory_ro done, doing set_memory_x\n");
 	set_memory_x((unsigned long)new_image, 1);
+	trace_printk("set_memory_x done\n");
 
 	if (tr->selector)
 		/* progs already running at this address */
