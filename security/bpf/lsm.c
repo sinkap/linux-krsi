@@ -7,6 +7,8 @@
 #include <linux/bpf_lsm.h>
 #include <linux/lsm_hooks.h>
 
+#include "bpf_lsm.h"
+
 /* This is only for internal hooks, always statically shipped as part of the
  * BPF LSM. Statically defined hooks are appended to the security_hook_heads
  * which is common for LSMs and R/O after init.
@@ -18,6 +20,39 @@ static struct security_hook_list bpf_lsm_hooks[] __lsm_ro_after_init = {};
  * hooks dynamically allocated by the BPF LSM are appeneded here.
  */
 struct security_hook_heads bpf_lsm_hook_heads;
+
+struct bpf_lsm_info bpf_lsm_info;
+
+static __init int bpf_lsm_info_init(void)
+{
+	int type_id;
+
+	if (!btf_vmlinux)
+		/* No need to grab any locks because we are still in init */
+		btf_vmlinux = btf_parse_vmlinux();
+
+	if (IS_ERR(btf_vmlinux)) {
+		pr_err("btf_vmlinux is malformed\n");
+		return PTR_ERR(btf_vmlinux);
+	}
+
+	type_id = btf_find_by_name_kind(btf_vmlinux, "security_hook_heads",
+					BTF_KIND_STRUCT);
+	if (WARN_ON(type_id < 0))
+		return type_id;
+
+	bpf_lsm_info.btf_hook_heads = btf_type_by_id(btf_vmlinux, type_id);
+
+	type_id = btf_find_by_name_kind(btf_vmlinux, "security_list_options",
+					BTF_KIND_UNION);
+	if (WARN_ON(type_id < 0))
+		return type_id;
+
+	bpf_lsm_info.btf_hook_types = btf_type_by_id(btf_vmlinux, type_id);
+	return 0;
+}
+
+late_initcall(bpf_lsm_info_init);
 
 static int __init bpf_lsm_init(void)
 {

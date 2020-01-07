@@ -14,6 +14,7 @@ struct btf_member;
 struct btf_type;
 union bpf_attr;
 
+extern struct btf *btf_vmlinux;
 extern const struct file_operations btf_fops;
 
 void btf_put(struct btf *btf);
