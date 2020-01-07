@@ -55,6 +55,9 @@ void bpf_lsm_srcu_read_unlock(int idx);
 	IS_ENABLED(CONFIG_SECURITY_BPF_ENFORCE) ? RC : 0;	\
 })
 
+const struct btf_type *bpf_lsm_type_by_index(struct btf *btf, u32 offset);
+const struct btf_member *bpf_lsm_head_by_index(struct btf *btf, u32 id);
+
 #else
 
 #define BPF_LSM_INT_HOOKS(RC, FUNC, ...) (RC)
@@ -64,8 +67,17 @@ static inline int bpf_lsm_srcu_read_lock(void)
 {
 	return 0;
 }
-
 static inline void bpf_lsm_srcu_read_unlock(int idx) {}
+static inline const struct btf_type *bpf_lsm_type_by_index(
+	struct btf *btf, u32 index)
+{
+	return ERR_PTR(-ENOSYS);
+}
+static inline const struct btf_member *bpf_lsm_head_by_index(
+	struct btf *btf, u32 id)
+{
+	return ERR_PTR(-ENOSYS);
+}
 #endif /* CONFIG_SECURITY_BPF */
 
 #endif /* _LINUX_BPF_LSM_H */
