@@ -6,6 +6,7 @@
 
 #include <linux/filter.h>
 #include <linux/bpf.h>
+#include <linux/btf.h>
 
 const struct bpf_prog_ops lsm_prog_ops = {
 };
@@ -25,4 +26,5 @@ static const struct bpf_func_proto *get_bpf_func_proto(
 
 const struct bpf_verifier_ops lsm_verifier_ops = {
 	.get_func_proto = get_bpf_func_proto,
+	.is_valid_access = btf_ctx_access,
 };
