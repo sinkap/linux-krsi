@@ -21,6 +21,9 @@ int bpf_lsm_srcu_read_lock(void);
 void bpf_lsm_srcu_read_unlock(int idx);
 const struct btf_type *bpf_lsm_type_by_index(struct btf *btf, u32 offset);
 const struct btf_member *bpf_lsm_head_by_index(struct btf *btf, u32 id);
+int bpf_lsm_attach(struct bpf_prog *prog);
+int bpf_lsm_detach(struct bpf_prog *prog);
+
 
 #define CALL_BPF_LSM_VOID_HOOKS(FUNC, ...)			\
 	do {							\
@@ -76,6 +79,14 @@ static inline const struct btf_member *bpf_lsm_head_by_index(
 	struct btf *btf, u32 id)
 {
 	return ERR_PTR(-ENOSYS);
+}
+static inline int bpf_lsm_attach(struct bpf_prog *prog)
+{
+	return -ENOSYS;
+}
+static inline int bpf_lsm_detach(struct bpf_prog *prog)
+{
+	return -ENOSYS;
 }
 
 #endif /* CONFIG_SECURITY_BPF */

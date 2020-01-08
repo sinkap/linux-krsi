@@ -837,6 +837,11 @@ void *__weak bpf_jit_alloc_exec(unsigned long size)
 
 void __weak bpf_jit_free_exec(void *addr)
 {
+	/* First make the page non-executable and then make it RW to avoid it
+	 * from being being W+X.
+	 */
+	set_memory_nx((unsigned long)addr, 1);
+	set_memory_rw((unsigned long)addr, 1);
 	module_memfree(addr);
 }
 
