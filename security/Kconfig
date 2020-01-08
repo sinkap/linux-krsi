@@ -32,6 +32,17 @@ config SECURITY
 
 	  If you are unsure how to answer this question, answer N.
 
+config SECURITY_DYNAMIC_HOOKS
+	bool "Enable Dynamic LSM hooks"
+	depends on SRCU
+	help
+	  This enables LSM hooks to be dynamically loaded provided
+	  this is supported by the LSM. The only LSM that currently
+	  supports dynamic attachment is the BPF LSM (i.e. "bpf").
+	  The mutable hooks are attached to a separate
+	  security_hook_heads and executed only after all the
+	  statically defined hooks return a success.
+
 config SECURITY_WRITABLE_HOOKS
 	depends on SECURITY
 	bool

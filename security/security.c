@@ -35,6 +35,7 @@
 #define LSM_COUNT (__end_lsm_info - __start_lsm_info)
 #define EARLY_LSM_COUNT (__end_early_lsm_info - __start_early_lsm_info)
 
+struct dynamic_lsm_hooks dynamic_lsm_hooks;
 struct security_hook_heads security_hook_heads __lsm_ro_after_init;
 static BLOCKING_NOTIFIER_HEAD(blocking_lsm_notifier_chain);
 
@@ -199,6 +200,9 @@ static void __init initialize_lsm(struct lsm_info *lsm)
 
 		init_debug("initializing %s\n", lsm->name);
 		ret = lsm->init();
+		if (lsm->dynamic_hook_heads)
+			hlist_add_tail_rcu(&lsm->dynamic_hook_heads->list,
+					   &dynamic_lsm_hooks.head);
 		WARN(ret, "%s failed to initialize: %d\n", lsm->name, ret);
 	}
 }
@@ -641,6 +645,66 @@ static void __init lsm_early_task(struct task_struct *task)
 		panic("%s: Early task alloc failed.\n", __func__);
 }
 
+int dynamic_hooks_read_lock(struct dynamic_hook_heads *head)
+{
+	return srcu_read_lock(head->srcu);
+}
+
+void dynamic_hooks_read_unlock(struct dynamic_hook_heads *head, int idx)
+{
+	return srcu_read_unlock(head->srcu, idx);
+}
+
+#ifdef CONFIG_SECURITY_DYNAMIC_HOOKS
+
+#define CALL_VOID_DYNAMIC_HOOKS(FUNC, ...)				\
+	do {								\
+		struct security_hook_list *P;				\
+		struct dynamic_hook_heads *d;				\
+		int _idx;						\
+									\
+		hlist_for_each_entry(d, &dynamic_lsm_hooks.head, list) {\
+									\
+			if (hlist_empty(&d->heads.FUNC))		\
+				continue;				\
+									\
+			_idx = dynamic_hooks_read_lock(d);		\
+			hlist_for_each_entry(P, &d->heads.FUNC, list) 	\
+				P->hook.FUNC(__VA_ARGS__);		\
+			dynamic_hooks_read_unlock(d, _idx);		\
+		}							\
+	} while (0)
+
+#define CALL_INT_DYNAMIC_HOOKS(FUNC, ...) ({				\
+	int _ret = 0;							\
+	do {								\
+		struct security_hook_list *P;				\
+		struct dynamic_hook_heads *d;				\
+		int _idx;						\
+		hlist_for_each_entry(d, &dynamic_lsm_hooks.head, list) {\
+									\
+			if (hlist_empty(&d->heads.FUNC))		\
+				break;					\
+									\
+			_idx = dynamic_hooks_read_lock(d);		\
+			hlist_for_each_entry(P, &d->heads.FUNC, list) {	\
+				_ret = P->hook.FUNC(__VA_ARGS__);	\
+				if (_ret)				\
+					break;				\
+			}						\
+			dynamic_hooks_read_unlock(d, _idx);		\
+		}							\
+	} while (0);							\
+	_ret;								\
+})
+
+#else /* !CONFIG_SECURITY_DYNAMIC_HOOKS */
+
+#define CALL_VOID_DYNAMIC_HOOKS(FUNC, ...)
+#define CALL_INT_DYNAMIC_HOOKS(FUNC, ...) 0
+
+#endif /* CONFIG_SECURITY_DYNAMIC_HOOKS */
+
 /*
  * Hook list operation macros.
  *
@@ -657,20 +721,22 @@ static void __init lsm_early_task(struct task_struct *task)
 								\
 		hlist_for_each_entry(P, &security_hook_heads.FUNC, list) \
 			P->hook.FUNC(__VA_ARGS__);		\
+		CALL_VOID_DYNAMIC_HOOKS(FUNC, __VA_ARGS__);	\
 	} while (0)
 
-#define call_int_hook(FUNC, IRC, ...) ({			\
-	int RC = IRC;						\
-	do {							\
-		struct security_hook_list *P;			\
-								\
+#define call_int_hook(FUNC, IRC, ...) ({				\
+	int RC = IRC;							\
+	do {								\
+		struct security_hook_list *P;				\
 		hlist_for_each_entry(P, &security_hook_heads.FUNC, list) { \
-			RC = P->hook.FUNC(__VA_ARGS__);		\
-			if (RC != 0)				\
-				break;				\
-		}						\
-	} while (0);						\
-	RC;							\
+			RC = P->hook.FUNC(__VA_ARGS__);			\
+			if (RC != 0)					\
+				break;					\
+		}							\
+		if (RC == 0)						\
+			RC = CALL_INT_DYNAMIC_HOOKS(FUNC, __VA_ARGS__);	\
+	} while (0);							\
+	RC;								\
 })
 
 /* Security operations */

@@ -12,6 +12,10 @@
  */
 static struct security_hook_list bpf_lsm_hooks[] __lsm_ro_after_init = {};
 
+/* eBPF programs that implement security hooks are attached here.
+ */
+DYNAMIC_HOOKS_INIT(bpf_lsm_dynamic_hooks);
+
 static int __init bpf_lsm_init(void)
 {
 	security_add_hooks(bpf_lsm_hooks, ARRAY_SIZE(bpf_lsm_hooks), "bpf");
@@ -23,4 +27,5 @@ DEFINE_LSM(bpf) = {
 	.name = "bpf",
 	.init = bpf_lsm_init,
 	.order = LSM_ORDER_LAST,
+	.dynamic_hook_heads = &bpf_lsm_dynamic_hooks,
 };

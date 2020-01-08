@@ -6,6 +6,7 @@ config SECURITY_BPF
 	bool "BPF-based MAC and audit policy"
 	depends on SECURITY
 	depends on BPF_SYSCALL
+	depends on SRCU
 	help
 	  This enables instrumentation of the security hooks with
 	  eBPF programs.
