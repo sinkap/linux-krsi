@@ -2088,6 +2088,36 @@ struct security_hook_list {
 	char				*lsm;
 } __randomize_layout;
 
+
+DEFINE_STATIC_SRCU(dynamic_hooks_srcu);
+
+/* LSMs can define dynamic_hooks by providing a separate dynamic_hook_heads
+ * in their definition (DEFINE_LSM). These hooks are:
+ *
+ * - Modifiable after init
+ * - Executed only after the statically defined hooks under SRCU.
+ *
+ * "bpf" is the only LSM that allows dynamic loading of LSM hooks. The LSM must
+ * ensure proper synchronization when modifying these hooks.
+ */
+struct dynamic_lsm_hooks {
+	struct hlist_head head;
+};
+
+struct dynamic_hook_heads {
+	struct hlist_node 		list;
+	struct security_hook_heads	heads;
+	struct srcu_struct 		*srcu;
+};
+
+#define DYNAMIC_HOOKS_INIT(HOOKS) 	\
+struct dynamic_hook_heads HOOKS = {	\
+	.srcu =  &dynamic_hooks_srcu,	\
+};
+
+int dynamic_hooks_read_lock(struct dynamic_hook_heads *head);
+void dynamic_hooks_read_unlock(struct dynamic_hook_heads *head, int idx);
+
 /*
  * Security blob size or offset data.
  */
@@ -2131,6 +2161,7 @@ struct lsm_info {
 	int *enabled;		/* Optional: controlled by CONFIG_LSM */
 	int (*init)(void);	/* Required. */
 	struct lsm_blob_sizes *blobs; /* Optional: for blob sharing. */
+	struct dynamic_hook_heads *dynamic_hook_heads;
 };
 
 extern struct lsm_info __start_lsm_info[], __end_lsm_info[];
