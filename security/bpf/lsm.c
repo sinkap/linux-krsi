@@ -26,6 +26,8 @@ struct bpf_lsm_info bpf_lsm_info;
 static __init int bpf_lsm_info_init(void)
 {
 	int type_id;
+	u32 num_hooks;
+	int i;
 
 	if (!btf_vmlinux)
 		/* No need to grab any locks because we are still in init */
@@ -42,6 +44,7 @@ static __init int bpf_lsm_info_init(void)
 		return type_id;
 
 	bpf_lsm_info.btf_hook_heads = btf_type_by_id(btf_vmlinux, type_id);
+	num_hooks = btf_type_vlen(bpf_lsm_info.btf_hook_heads);
 
 	type_id = btf_find_by_name_kind(btf_vmlinux, "security_list_options",
 					BTF_KIND_UNION);
@@ -49,6 +52,21 @@ static __init int bpf_lsm_info_init(void)
 		return type_id;
 
 	bpf_lsm_info.btf_hook_types = btf_type_by_id(btf_vmlinux, type_id);
+	bpf_lsm_info.hook_lists = kcalloc(num_hooks,
+					  sizeof(struct bpf_lsm_list),
+					  GFP_KERNEL);
+	if (!bpf_lsm_info.hook_lists)
+		return -ENOMEM;
+
+	/* The mutex needs to be initialized at init as it must be held
+	 * when mutating the list. The rest of the information in the list
+	 * is populated lazily when the first LSM hook callback is appeneded
+	 * to the list.
+	 */
+	for (i = 0; i < num_hooks; i++)
+		mutex_init(&bpf_lsm_info.hook_lists[i].mutex);
+
+	bpf_lsm_info.initialized = true;
 	return 0;
 }
 
