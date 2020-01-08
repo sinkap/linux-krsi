@@ -19,6 +19,7 @@
 #include <linux/sort.h>
 #include <linux/perf_event.h>
 #include <linux/ctype.h>
+#include <linux/bpf_lsm.h>
 
 #include "disasm.h"
 
@@ -6393,8 +6394,9 @@ static int check_return_code(struct bpf_verifier_env *env)
 	struct tnum range = tnum_range(0, 1);
 	int err;
 
-	/* The struct_ops func-ptr's return type could be "void" */
-	if (env->prog->type == BPF_PROG_TYPE_STRUCT_OPS &&
+	/* LSM and struct_ops func-ptr's return type could be "void" */
+	if ((env->prog->type == BPF_PROG_TYPE_STRUCT_OPS ||
+	     env->prog->type == BPF_PROG_TYPE_LSM) &&
 	    !prog->aux->attach_func_proto->type)
 		return 0;
 
@@ -9734,7 +9736,51 @@ static int check_struct_ops_btf_id(struct bpf_verifier_env *env)
 	return 0;
 }
 
-static int check_attach_btf_id(struct bpf_verifier_env *env)
+/* BPF_PROG_TYPE_LSM programs pass the member index of the LSM hook in the
+ * security_hook_heads as the lsm_hook_index. The verifier determines the
+ * name and the prototype for the LSM hook using the information in
+ * security_list_options, validates if the offset is a valid hlist_head, and
+ * updates the attach_btf_id to the byte offset in the security_hook_heads
+ * struct.
+ */
+static inline int check_attach_btf_id_lsm(struct bpf_verifier_env *env)
+{
+	struct bpf_prog *prog = env->prog;
+	u32 index = prog->aux->lsm_hook_index;
+	const struct btf_member *head;
+	const struct btf_type *t;
+	const char *tname;
+	int ret;
+
+	ret = bpf_lsm_verify_prog(prog);
+	if (ret < 0)
+		return -EINVAL;
+
+	t = bpf_lsm_type_by_index(btf_vmlinux, index);
+	if (!t) {
+		verbose(env, "unable to find security_list_option for index %u in security_hook_heads\n", index);
+		return -EINVAL;
+	}
+
+	if (!btf_type_is_func_proto(t))
+		return -EINVAL;
+
+	head = bpf_lsm_head_by_index(btf_vmlinux, index);
+	if (IS_ERR(head)) {
+		verbose(env, "no security_hook_heads index = %u\n", index);
+		return PTR_ERR(head);
+	}
+
+	tname = btf_name_by_offset(btf_vmlinux, head->name_off);
+	if (!tname || !tname[0])
+		return -EINVAL;
+
+	prog->aux->attach_func_name = tname;
+	prog->aux->attach_func_proto = t;
+	return 0;
+}
+
+static int check_attach_btf_id_tracing(struct bpf_verifier_env *env)
 {
 	struct bpf_prog *prog = env->prog;
 	struct bpf_prog *tgt_prog = prog->aux->linked_prog;
@@ -9748,12 +9794,6 @@ static int check_attach_btf_id(struct bpf_verifier_env *env)
 	struct btf *btf;
 	long addr;
 	u64 key;
-
-	if (prog->type == BPF_PROG_TYPE_STRUCT_OPS)
-		return check_struct_ops_btf_id(env);
-
-	if (prog->type != BPF_PROG_TYPE_TRACING)
-		return 0;
 
 	if (!btf_id) {
 		verbose(env, "Tracing programs must provide btf_id\n");
@@ -9892,6 +9932,22 @@ out:
 		return ret;
 	default:
 		return -EINVAL;
+	}
+}
+
+static int check_attach_btf_id(struct bpf_verifier_env *env)
+{
+	struct bpf_prog *prog = env->prog;
+
+	switch (prog->type) {
+	case BPF_PROG_TYPE_TRACING:
+		return check_attach_btf_id_tracing(env);
+	case BPF_PROG_TYPE_STRUCT_OPS:
+		return check_struct_ops_btf_id(env);
+	case BPF_PROG_TYPE_LSM:
+		return check_attach_btf_id_lsm(env);
+	default:
+		return 0;
 	}
 }
 

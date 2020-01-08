@@ -9,6 +9,7 @@ config SECURITY_BPF
 	depends on BPF_SYSCALL
 	depends on SRCU
 	depends on DEBUG_INFO_BTF
+	depends on BPF_JIT && HAVE_EBPF_JIT
 	help
 	  This enables instrumentation of the security hooks with
 	  eBPF programs.
