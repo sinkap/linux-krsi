@@ -8,6 +8,25 @@
 #include <linux/bpf.h>
 #include <linux/btf.h>
 
+BPF_CALL_4(bpf_event_output_fn,
+	   struct bpf_map *, map, u64, flags, void *, data, u64, size)
+{
+	if (unlikely(flags & ~(BPF_F_INDEX_MASK)))
+		return -EINVAL;
+
+	return bpf_event_output(map, flags, data, size, NULL, 0, NULL);
+}
+
+static const struct bpf_func_proto bpf_event_output_proto =  {
+	.func		= bpf_event_output_fn,
+	.gpl_only       = true,
+	.ret_type       = RET_INTEGER,
+	.arg1_type      = ARG_CONST_MAP_PTR,
+	.arg2_type      = ARG_ANYTHING,
+	.arg3_type      = ARG_PTR_TO_MEM,
+	.arg4_type      = ARG_CONST_SIZE_OR_ZERO,
+};
+
 const struct bpf_prog_ops lsm_prog_ops = {
 };
 
@@ -19,6 +38,8 @@ static const struct bpf_func_proto *get_bpf_func_proto(
 		return &bpf_map_lookup_elem_proto;
 	case BPF_FUNC_get_current_pid_tgid:
 		return &bpf_get_current_pid_tgid_proto;
+	case BPF_FUNC_event_output:
+		return &bpf_event_output_proto;
 	default:
 		return NULL;
 	}
