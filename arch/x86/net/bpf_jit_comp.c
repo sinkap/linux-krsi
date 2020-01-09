@@ -1368,6 +1368,10 @@ static int invoke_bpf(struct btf_func_model *m, u8 **pprog,
 	int cnt = 0, i;
 
 	for (i = 0; i < prog_cnt; i++) {
+		/* arg1: mov rdi, progs[i] */
+		emit_mov_imm64(&prog, BPF_REG_1, (long) progs[i] >> 32,
+			       (u32) (long) progs[i]);
+
 		if (emit_call(&prog, __bpf_prog_enter, prog))
 			return -EINVAL;
 		/* remember prog start time returned by __bpf_prog_enter */

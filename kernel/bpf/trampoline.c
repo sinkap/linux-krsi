@@ -263,12 +263,15 @@ out:
  * call prog->bpf_func
  * call __bpf_prog_exit
  */
-u64 notrace __bpf_prog_enter(void)
+u64 notrace __bpf_prog_enter(struct bpf_prog *prog)
 {
 	u64 start = 0;
 
-	rcu_read_lock();
-	preempt_disable();
+	if (prog->expected_attach_type != BPF_LSM_MAC) {
+		rcu_read_lock();
+		preempt_disable();
+	}
+
 	if (static_branch_unlikely(&bpf_stats_enabled_key))
 		start = sched_clock();
 	return start;
@@ -291,8 +294,11 @@ void notrace __bpf_prog_exit(struct bpf_prog *prog, u64 start)
 		stats->nsecs += sched_clock() - start;
 		u64_stats_update_end(&stats->syncp);
 	}
-	preempt_enable();
-	rcu_read_unlock();
+
+	if (prog->expected_attach_type != BPF_LSM_MAC) {
+		preempt_enable();
+		rcu_read_unlock();
+	}
 }
 
 int __weak
