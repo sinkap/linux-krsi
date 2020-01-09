@@ -19,6 +19,10 @@ static const struct bpf_func_proto *get_bpf_func_proto(
 		return &bpf_map_lookup_elem_proto;
 	case BPF_FUNC_get_current_pid_tgid:
 		return &bpf_get_current_pid_tgid_proto;
+	case BPF_FUNC_sleep_enable:
+		return &bpf_sleep_enable_proto;
+	case BPF_FUNC_sleep_disable:
+		return &bpf_sleep_disable_proto;
 	default:
 		return NULL;
 	}
