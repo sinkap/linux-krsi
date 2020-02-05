@@ -498,4 +498,29 @@ const struct bpf_func_proto bpf_strtoul_proto = {
 	.arg3_type	= ARG_ANYTHING,
 	.arg4_type	= ARG_PTR_TO_LONG,
 };
+
+BPF_CALL_0(bpf_sleep_disable)
+{
+	rcu_read_lock();
+	preempt_disable();
+	return 0;
+}
+
+const struct bpf_func_proto bpf_sleep_disable_proto = {
+	.func		= bpf_sleep_disable,
+	.ret_type	= RET_VOID,
+};
+
+BPF_CALL_0(bpf_sleep_enable)
+{
+	preempt_enable();
+	rcu_read_unlock();
+	return 0;
+}
+
+const struct bpf_func_proto bpf_sleep_enable_proto = {
+	.func		= bpf_sleep_enable,
+	.ret_type	= RET_VOID,
+};
+
 #endif

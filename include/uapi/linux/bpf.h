@@ -2898,6 +2898,14 @@ union bpf_attr {
  *		Obtain the 64bit jiffies
  *	Return
  *		The 64 bit jiffies
+ *
+ * void bpf_sleep_enable(void)
+ *	Description
+ *		Enable preemption and finish an RCU critical section.
+ *
+ * void bpf_sleep_disable(void)
+ *	Description
+ *		Disable preemption and start an RCU critical section.
  */
 #define __BPF_FUNC_MAPPER(FN)		\
 	FN(unspec),			\
@@ -3018,7 +3026,9 @@ union bpf_attr {
 	FN(probe_read_kernel_str),	\
 	FN(tcp_send_ack),		\
 	FN(send_signal_thread),		\
-	FN(jiffies64),
+	FN(jiffies64),			\
+	FN(sleep_enable),		\
+	FN(sleep_disable),
 
 /* integer value in 'imm' field of BPF_CALL instruction selects which helper
  * function eBPF program intends to call
