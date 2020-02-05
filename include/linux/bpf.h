@@ -272,6 +272,10 @@ struct bpf_func_proto {
 		enum bpf_arg_type arg_type[5];
 	};
 	int *btf_id; /* BTF ids of arguments */
+	/* If, set the BPF helper can be called without disabling preemption
+	 * and outside an RCU read critical section.
+	 */
+	bool can_sleep;
 };
 
 /* bpf_context is intentionally undefined structure. Pointer to bpf_context is

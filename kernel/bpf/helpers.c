@@ -509,6 +509,7 @@ BPF_CALL_0(bpf_sleep_disable)
 const struct bpf_func_proto bpf_sleep_disable_proto = {
 	.func		= bpf_sleep_disable,
 	.ret_type	= RET_VOID,
+	.can_sleep	= true,
 };
 
 BPF_CALL_0(bpf_sleep_enable)
@@ -521,6 +522,7 @@ BPF_CALL_0(bpf_sleep_enable)
 const struct bpf_func_proto bpf_sleep_enable_proto = {
 	.func		= bpf_sleep_enable,
 	.ret_type	= RET_VOID,
+	.can_sleep	= true,
 };
 
 #endif

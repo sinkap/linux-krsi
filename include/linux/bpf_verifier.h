@@ -262,6 +262,7 @@ struct bpf_verifier_state {
 	 */
 	struct bpf_idx_pair *jmp_history;
 	u32 jmp_history_cnt;
+	bool sleep_disabled;
 };
 
 #define bpf_get_spilled_reg(slot, frame)				\

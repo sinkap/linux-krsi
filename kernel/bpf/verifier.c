@@ -793,6 +793,7 @@ static int copy_verifier_state(struct bpf_verifier_state *dst_state,
 	dst_state->speculative = src->speculative;
 	dst_state->curframe = src->curframe;
 	dst_state->active_spin_lock = src->active_spin_lock;
+	dst_state->sleep_disabled = src->sleep_disabled;
 	dst_state->branches = src->branches;
 	dst_state->parent = src->parent;
 	dst_state->first_insn_idx = src->first_insn_idx;
@@ -4218,6 +4219,34 @@ static int check_reference_leak(struct bpf_verifier_env *env)
 	return state->acquired_refs ? -EINVAL : 0;
 }
 
+static int process_sleepable_bpf(struct bpf_verifier_env *env,
+				 int func_id,
+				 const struct bpf_func_proto *fn)
+{
+	if (func_id == BPF_FUNC_sleep_disable) {
+		if (env->cur_state->sleep_disabled) {
+			verbose(env, "sleep already disabled, cannot be disabled again\n");
+			return -EINVAL;
+		}
+		env->cur_state->sleep_disabled = true;
+	}
+
+	if (func_id == BPF_FUNC_sleep_enable) {
+		if (!env->cur_state->sleep_disabled) {
+			verbose(env, "sleep was never disabled, cannot be enabled again\n");
+			return -EINVAL;
+		}
+		env->cur_state->sleep_disabled = false;
+	}
+
+	if (!fn->can_sleep && !env->cur_state->sleep_disabled) {
+		verbose(env, "calling helper %d requires disabling sleep\n", func_id);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 static int check_helper_call(struct bpf_verifier_env *env, int func_id, int insn_idx)
 {
 	const struct bpf_func_proto *fn = NULL;
@@ -4246,6 +4275,10 @@ static int check_helper_call(struct bpf_verifier_env *env, int func_id, int insn
 		verbose(env, "cannot call GPL-restricted function from non-GPL compatible program\n");
 		return -EINVAL;
 	}
+
+	err = process_sleepable_bpf(env, func_id, fn);
+	if (err < 0)
+		return err;
 
 	/* With LD_ABS/IND some JITs save/restore skb from r1. */
 	changes_data = bpf_helper_changes_pkt_data(fn->func);
@@ -7404,6 +7437,9 @@ static bool states_equal(struct bpf_verifier_env *env,
 	if (old->active_spin_lock != cur->active_spin_lock)
 		return false;
 
+	if (old->sleep_disabled != cur->sleep_disabled)
+		return false;
+
 	/* for states to be equal callsites have to be the same
 	 * and all frame states need to be equivalent
 	 */
@@ -8054,6 +8090,11 @@ static int do_check(struct bpf_verifier_env *env)
 
 				if (env->cur_state->active_spin_lock) {
 					verbose(env, "bpf_spin_unlock is missing\n");
+					return -EINVAL;
+				}
+
+				if (env->cur_state->sleep_disabled) {
+					verbose(env, "bpf_sleep_enable is missing\n");
 					return -EINVAL;
 				}
 
