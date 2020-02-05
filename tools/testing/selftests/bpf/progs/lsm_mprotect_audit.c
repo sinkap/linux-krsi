@@ -34,7 +34,9 @@ SEC("lsm/file_mprotect")
 int BPF_PROG(mprotect_audit, struct vm_area_struct *vma,
 	     unsigned long reqprot, unsigned long prot)
 {
+	bpf_sleep_disable();
 	__u32 pid = bpf_get_current_pid_tgid();
+	bpf_sleep_enable();
 	int is_heap = 0;
 
 	is_heap = (vma->vm_start >= vma->vm_mm->start_brk &&
