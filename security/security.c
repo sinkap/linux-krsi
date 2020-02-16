@@ -804,6 +804,13 @@ int security_vm_enough_memory_mm(struct mm_struct *mm, long pages)
 			break;
 		}
 	}
+#ifdef CONFIG_BPF_LSM
+	if (HAS_BPF_LSM_PROG(vm_enough_memory)) {
+		rc = bpf_lsm_vm_enough_memory(mm, pages);
+		if (rc <= 0)
+			cap_sys_admin = 0;
+	}
+#endif
 	return __vm_enough_memory(mm, pages, cap_sys_admin);
 }
 
@@ -1350,6 +1357,13 @@ int security_inode_getsecurity(struct inode *inode, const char *name, void **buf
 		if (rc != -EOPNOTSUPP)
 			return rc;
 	}
+#ifdef CONFIG_BPF_LSM
+	if (HAS_BPF_LSM_PROG(inode_getsecurity)) {
+		rc = bpf_lsm_inode_getsecurity(inode, name, buffer, alloc);
+		if (rc != -EOPNOTSUPP)
+			return rc;
+	}
+#endif
 	return -EOPNOTSUPP;
 }
 
@@ -1369,6 +1383,14 @@ int security_inode_setsecurity(struct inode *inode, const char *name, const void
 		if (rc != -EOPNOTSUPP)
 			return rc;
 	}
+#ifdef CONFIG_BPF_LSM
+	if (HAS_BPF_LSM_PROG(inode_setsecurity)) {
+		rc = bpf_lsm_inode_setsecurity(inode, name, value, size,
+					       flags);
+		if (rc != -EOPNOTSUPP)
+			return rc;
+	}
+#endif
 	return -EOPNOTSUPP;
 }
 
@@ -1754,6 +1776,12 @@ int security_task_prctl(int option, unsigned long arg2, unsigned long arg3,
 				break;
 		}
 	}
+#ifdef CONFIG_BPF_LSM
+	if (HAS_BPF_LSM_PROG(task_prctl)) {
+		if (rc == -ENOSYS)
+			rc = bpf_lsm_task_prctl(option, arg2, arg3, arg4, arg5);
+	}
+#endif
 	return rc;
 }
 
@@ -2334,6 +2362,10 @@ int security_xfrm_state_pol_flow_match(struct xfrm_state *x,
 		rc = hp->hook.xfrm_state_pol_flow_match(x, xp, fl);
 		break;
 	}
+#ifdef CONFIG_BPF_LSM
+	if (HAS_BPF_LSM_PROG(xfrm_state_pol_flow_match))
+		rc = bpf_lsm_xfrm_state_pol_flow_match(x, xp, fl);
+#endif
 	return rc;
 }
 
