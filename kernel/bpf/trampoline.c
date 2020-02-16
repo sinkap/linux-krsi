@@ -5,6 +5,7 @@
 #include <linux/filter.h>
 #include <linux/ftrace.h>
 #include <linux/rbtree_latch.h>
+#include <linux/bpf_lsm.h>
 
 /* dummy _ops. The verifier will operate on target program's ops. */
 const struct bpf_verifier_ops bpf_extension_verifier_ops = {
@@ -195,8 +196,9 @@ static int register_fentry(struct bpf_trampoline *tr, void *new_addr)
  */
 #define BPF_MAX_TRAMP_PROGS 40
 
-static int bpf_trampoline_update(struct bpf_trampoline *tr)
+static int bpf_trampoline_update(struct bpf_prog *prog)
 {
+	struct bpf_trampoline *tr = prog->aux->trampoline;
 	void *old_image = tr->image + ((tr->selector + 1) & 1) * BPF_IMAGE_SIZE/2;
 	void *new_image = tr->image + (tr->selector & 1) * BPF_IMAGE_SIZE/2;
 	struct bpf_prog *progs_to_run[BPF_MAX_TRAMP_PROGS];
@@ -223,8 +225,11 @@ static int bpf_trampoline_update(struct bpf_trampoline *tr)
 	hlist_for_each_entry(aux, &tr->progs_hlist[BPF_TRAMP_FEXIT], tramp_hlist)
 		*progs++ = aux->prog;
 
-	if (fexit_cnt)
+	if (fexit_cnt) {
 		flags = BPF_TRAMP_F_CALL_ORIG | BPF_TRAMP_F_SKIP_FRAME;
+		if (prog->type == BPF_PROG_TYPE_LSM)
+			flags |= BPF_TRAMP_F_OVERRIDE_RETURN;
+	}
 
 	/* Though the second half of trampoline page is unused a task could be
 	 * preempted in the middle of the first half of trampoline and two
@@ -261,6 +266,7 @@ static enum bpf_tramp_prog_type bpf_attach_type_to_tramp(enum bpf_attach_type t)
 	case BPF_TRACE_FENTRY:
 		return BPF_TRAMP_FENTRY;
 	case BPF_TRACE_FEXIT:
+	case BPF_LSM_MAC:
 		return BPF_TRAMP_FEXIT;
 	default:
 		return BPF_TRAMP_REPLACE;
@@ -307,11 +313,17 @@ int bpf_trampoline_link_prog(struct bpf_prog *prog)
 	}
 	hlist_add_head(&prog->aux->tramp_hlist, &tr->progs_hlist[kind]);
 	tr->progs_cnt[kind]++;
-	err = bpf_trampoline_update(prog->aux->trampoline);
+	err = bpf_trampoline_update(prog);
 	if (err) {
 		hlist_del(&prog->aux->tramp_hlist);
 		tr->progs_cnt[kind]--;
 	}
+
+	/* This is the first program to be attached to the LSM hook, the hook
+	 * needs to be enabled.
+	 */
+	if (prog->type == BPF_PROG_TYPE_LSM && tr->progs_cnt[kind] == 1)
+		err = bpf_lsm_set_enabled(prog->aux->attach_func_name, true);
 out:
 	mutex_unlock(&tr->mutex);
 	return err;
@@ -336,7 +348,11 @@ int bpf_trampoline_unlink_prog(struct bpf_prog *prog)
 	}
 	hlist_del(&prog->aux->tramp_hlist);
 	tr->progs_cnt[kind]--;
-	err = bpf_trampoline_update(prog->aux->trampoline);
+	err = bpf_trampoline_update(prog);
+
+	/* There are no more LSM programs, the hook should be disabled */
+	if (prog->type == BPF_PROG_TYPE_LSM && tr->progs_cnt[kind] == 0)
+		err = bpf_lsm_set_enabled(prog->aux->attach_func_name, false);
 out:
 	mutex_unlock(&tr->mutex);
 	return err;

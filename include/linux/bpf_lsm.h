@@ -41,6 +41,8 @@ void bpf_lsm_##NAME##_set_enabled(bool value);
 })
 
 int bpf_lsm_set_enabled(const char *name, bool value);
+int bpf_lsm_verify_prog(struct bpf_verifier_log *vlog,
+			const struct bpf_prog *prog);
 
 #else /* !CONFIG_BPF_LSM */
 
@@ -49,6 +51,12 @@ int bpf_lsm_set_enabled(const char *name, bool value);
 #define RUN_BPF_LSM_VOID_PROGS(FUNC, ...)
 
 static inline int bpf_lsm_set_enabled(const char *name, bool value)
+{
+	return -EOPNOTSUPP;
+}
+
+static inline int bpf_lsm_verify_prog(struct bpf_verifier_log *vlog,
+				      const struct bpf_prog *prog)
 {
 	return -EOPNOTSUPP;
 }

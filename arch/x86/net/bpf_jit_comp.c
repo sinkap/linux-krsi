@@ -1362,7 +1362,8 @@ static void restore_regs(const struct btf_func_model *m, u8 **prog, int nr_args,
 }
 
 static int invoke_bpf(const struct btf_func_model *m, u8 **pprog,
-		      struct bpf_prog **progs, int prog_cnt, int stack_size)
+		      struct bpf_prog **progs, int prog_cnt, int stack_size,
+		      bool override_return)
 {
 	u8 *prog = *pprog;
 	int cnt = 0, i;
@@ -1383,6 +1384,17 @@ static int invoke_bpf(const struct btf_func_model *m, u8 **pprog,
 		/* call JITed bpf program or interpreter */
 		if (emit_call(&prog, progs[i]->bpf_func, prog))
 			return -EINVAL;
+
+		/* If the trampoline is setup such that BPF programs can
+		 * override the return value then any BPF program in the list
+		 * can override value is passed to next the BPF program
+		 * on the stack and this subsequent program can check this
+		 * value to determine its return value. The last BPF program's
+		 * return value then determines the return value of the
+		 * attached function.
+		 */
+		if (override_return)
+			emit_stx(&prog, BPF_DW, BPF_REG_FP, BPF_REG_0, -8);
 
 		/* arg1: mov rdi, progs[i] */
 		emit_mov_imm64(&prog, BPF_REG_1, (long) progs[i] >> 32,
@@ -1462,6 +1474,7 @@ int arch_prepare_bpf_trampoline(void *image, void *image_end,
 				struct bpf_prog **fexit_progs, int fexit_cnt,
 				void *orig_call)
 {
+	bool override_return = flags & BPF_TRAMP_F_OVERRIDE_RETURN;
 	int cnt = 0, nr_args = m->nr_args;
 	int stack_size = nr_args * 8;
 	u8 *prog;
@@ -1493,7 +1506,8 @@ int arch_prepare_bpf_trampoline(void *image, void *image_end,
 	save_regs(m, &prog, nr_args, stack_size);
 
 	if (fentry_cnt)
-		if (invoke_bpf(m, &prog, fentry_progs, fentry_cnt, stack_size))
+		if (invoke_bpf(m, &prog, fentry_progs, fentry_cnt, stack_size,
+			       false))
 			return -EINVAL;
 
 	if (flags & BPF_TRAMP_F_CALL_ORIG) {
@@ -1503,18 +1517,22 @@ int arch_prepare_bpf_trampoline(void *image, void *image_end,
 		/* call original function */
 		if (emit_call(&prog, orig_call, prog))
 			return -EINVAL;
-		/* remember return value in a stack for bpf prog to access */
+
+		/* remember return value in a stack for bpf prog to
+		 * access.
+		 */
 		emit_stx(&prog, BPF_DW, BPF_REG_FP, BPF_REG_0, -8);
 	}
 
 	if (fexit_cnt)
-		if (invoke_bpf(m, &prog, fexit_progs, fexit_cnt, stack_size))
+		if (invoke_bpf(m, &prog, fexit_progs, fexit_cnt, stack_size,
+			       override_return))
 			return -EINVAL;
 
 	if (flags & BPF_TRAMP_F_RESTORE_REGS)
 		restore_regs(m, &prog, nr_args, stack_size);
 
-	if (flags & BPF_TRAMP_F_CALL_ORIG)
+	if (flags & BPF_TRAMP_F_CALL_ORIG && !override_return)
 		/* restore original return value back into RAX */
 		emit_ldx(&prog, BPF_DW, BPF_REG_0, BPF_REG_FP, -8);
 
