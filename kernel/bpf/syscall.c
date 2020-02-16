@@ -25,6 +25,7 @@
 #include <linux/nospec.h>
 #include <linux/audit.h>
 #include <uapi/linux/btf.h>
+#include <linux/bpf_lsm.h>
 
 #define IS_FD_ARRAY(map) ((map)->map_type == BPF_MAP_TYPE_PERF_EVENT_ARRAY || \
 			  (map)->map_type == BPF_MAP_TYPE_CGROUP_ARRAY || \
@@ -1931,6 +1932,7 @@ bpf_prog_load_check_attach(enum bpf_prog_type prog_type,
 
 		switch (prog_type) {
 		case BPF_PROG_TYPE_TRACING:
+		case BPF_PROG_TYPE_LSM:
 		case BPF_PROG_TYPE_STRUCT_OPS:
 		case BPF_PROG_TYPE_EXT:
 			break;
@@ -2169,28 +2171,53 @@ static int bpf_obj_get(const union bpf_attr *attr)
 				attr->file_flags);
 }
 
-static int bpf_tracing_prog_release(struct inode *inode, struct file *filp)
+static int bpf_tramp_prog_release(struct inode *inode, struct file *filp)
 {
 	struct bpf_prog *prog = filp->private_data;
+
+	/* Only CAP_MAC_ADMIN users are allowed to make changes to LSM hooks
+	 */
+	if (prog->type == BPF_PROG_TYPE_LSM && !capable(CAP_MAC_ADMIN))
+		return -EPERM;
 
 	WARN_ON_ONCE(bpf_trampoline_unlink_prog(prog));
 	bpf_prog_put(prog);
 	return 0;
 }
 
-static const struct file_operations bpf_tracing_prog_fops = {
-	.release	= bpf_tracing_prog_release,
+static const struct file_operations bpf_tramp_prog_fops = {
+	.release	= bpf_tramp_prog_release,
 	.read		= bpf_dummy_read,
 	.write		= bpf_dummy_write,
 };
 
-static int bpf_tracing_prog_attach(struct bpf_prog *prog)
+static int bpf_tramp_prog_attach(struct bpf_prog *prog)
 {
 	int tr_fd, err;
 
-	if (prog->expected_attach_type != BPF_TRACE_FENTRY &&
-	    prog->expected_attach_type != BPF_TRACE_FEXIT &&
-	    prog->type != BPF_PROG_TYPE_EXT) {
+	switch (prog->type) {
+	case BPF_PROG_TYPE_TRACING:
+		if (prog->expected_attach_type != BPF_TRACE_FENTRY &&
+		    prog->expected_attach_type != BPF_TRACE_FEXIT &&
+		    prog->type != BPF_PROG_TYPE_EXT) {
+			err = -EINVAL;
+			goto out_put_prog;
+		}
+		break;
+	case BPF_PROG_TYPE_LSM:
+		if (prog->expected_attach_type != BPF_LSM_MAC) {
+			err = -EINVAL;
+			goto out_put_prog;
+		}
+		/* Only CAP_MAC_ADMIN users are allowed to make changes to LSM
+		 * hooks.
+		 */
+		if (!capable(CAP_MAC_ADMIN)) {
+			err = -EPERM;
+			goto out_put_prog;
+		}
+		break;
+	default:
 		err = -EINVAL;
 		goto out_put_prog;
 	}
@@ -2199,7 +2226,7 @@ static int bpf_tracing_prog_attach(struct bpf_prog *prog)
 	if (err)
 		goto out_put_prog;
 
-	tr_fd = anon_inode_getfd("bpf-tracing-prog", &bpf_tracing_prog_fops,
+	tr_fd = anon_inode_getfd("bpf-tramp-prog", &bpf_tramp_prog_fops,
 				 prog, O_CLOEXEC);
 	if (tr_fd < 0) {
 		WARN_ON_ONCE(bpf_trampoline_unlink_prog(prog));
@@ -2258,12 +2285,14 @@ static int bpf_raw_tracepoint_open(const union bpf_attr *attr)
 	if (prog->type != BPF_PROG_TYPE_RAW_TRACEPOINT &&
 	    prog->type != BPF_PROG_TYPE_TRACING &&
 	    prog->type != BPF_PROG_TYPE_EXT &&
+	    prog->type != BPF_PROG_TYPE_LSM &&
 	    prog->type != BPF_PROG_TYPE_RAW_TRACEPOINT_WRITABLE) {
 		err = -EINVAL;
 		goto out_put_prog;
 	}
 
 	if (prog->type == BPF_PROG_TYPE_TRACING ||
+	    prog->type == BPF_PROG_TYPE_LSM ||
 	    prog->type == BPF_PROG_TYPE_EXT) {
 		if (attr->raw_tracepoint.name) {
 			/* The attach point for this category of programs
@@ -2275,7 +2304,7 @@ static int bpf_raw_tracepoint_open(const union bpf_attr *attr)
 		if (prog->expected_attach_type == BPF_TRACE_RAW_TP)
 			tp_name = prog->aux->attach_func_name;
 		else
-			return bpf_tracing_prog_attach(prog);
+			return bpf_tramp_prog_attach(prog);
 	} else {
 		if (strncpy_from_user(buf,
 				      u64_to_user_ptr(attr->raw_tracepoint.name),

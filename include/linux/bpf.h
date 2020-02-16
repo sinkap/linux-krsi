@@ -432,6 +432,10 @@ struct btf_func_model {
  * programs only. Should not be used with normal calls and indirect calls.
  */
 #define BPF_TRAMP_F_SKIP_FRAME		BIT(2)
+/* Override the return value of the original function. This flag only makes
+ * sense for fexit trampolines.
+ */
+#define BPF_TRAMP_F_OVERRIDE_RETURN     BIT(3)
 
 /* Different use cases for BPF trampoline:
  * 1. replace nop at the function entry (kprobe equivalent)
@@ -490,6 +494,10 @@ struct bpf_trampoline {
 	struct hlist_head progs_hlist[BPF_TRAMP_MAX];
 	/* Number of attached programs. A counter per kind. */
 	int progs_cnt[BPF_TRAMP_MAX];
+	/* LSM programs are fexit trampolines, their count is tracked separately
+	 * in order to toggle static associated with the LSM hook.
+	 */
+	int nr_lsm_progs;
 	/* Executable image of trampoline */
 	void *image;
 	u64 selector;
