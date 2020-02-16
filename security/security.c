@@ -28,6 +28,7 @@
 #include <linux/string.h>
 #include <linux/msg.h>
 #include <net/flow.h>
+#include <linux/bpf_lsm.h>
 
 #define MAX_LSM_EVM_XATTR	2
 
@@ -684,6 +685,7 @@ static void __init lsm_early_task(struct task_struct *task)
 								\
 		hlist_for_each_entry(P, &security_hook_heads.FUNC, list) \
 			P->hook.FUNC(__VA_ARGS__);		\
+		RUN_BPF_LSM_VOID_PROGS(FUNC, __VA_ARGS__);	\
 	} while (0)
 
 #define call_int_hook(FUNC, IRC, ...) ({			\
@@ -696,6 +698,7 @@ static void __init lsm_early_task(struct task_struct *task)
 			if (RC != 0)				\
 				break;				\
 		}						\
+		RC = RUN_BPF_LSM_INT_PROGS(RC, FUNC, __VA_ARGS__); \
 	} while (0);						\
 	RC;							\
 })
