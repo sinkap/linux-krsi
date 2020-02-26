@@ -29,6 +29,7 @@
 #include <linux/msg.h>
 #include <net/flow.h>
 #include <linux/bpf_lsm.h>
+#include <linux/jump_label.h>
 
 #define MAX_LSM_EVM_XATTR	2
 
@@ -481,6 +482,9 @@ void __init security_add_hooks(struct security_hook_list *hooks, int count,
 	for (i = 0; i < count; i++) {
 		hooks[i].lsm = lsm;
 		hlist_add_tail_rcu(&hooks[i].list, hooks[i].head);
+		if (!hooks[i].default_disabled &&
+		    !static_key_enabled(hooks[i].key))
+			static_branch_enable(hooks[i].key);
 	}
 
 	/*
@@ -679,6 +683,23 @@ static void __init lsm_early_task(struct task_struct *task)
  *	This is a hook that returns a value.
  */
 
+// For demo.
+#define SECURITY_HOOK_STATIC_KEYS
+
+#ifdef SECURITY_HOOK_STATIC_KEYS
+#define security_for_each_hook(pos, FUNC, member) \
+	for (pos = hlist_entry_safe((&security_hook_heads.FUNC)->first, typeof(*(pos)), member);\
+	     static_branch_unlikely(&key_##FUNC) && pos; \
+	     pos = hlist_entry_safe((pos)->member.next, typeof(*(pos)), member))
+#else
+#define security_for_each_hook(pos, FUNC, member) \
+		hlist_for_each_entry(pos, &security_hook_heads.FUNC, member)
+#endif
+
+#define LSM_HOOK(RET, FUNC, ...) DEFINE_STATIC_KEY_FALSE(key_##FUNC);
+#include <linux/lsm_hook_names.h>
+#undef LSM_HOOK
+
 #define call_void_hook(FUNC, ...)				\
 	do {							\
 		struct security_hook_list *P;			\
@@ -693,7 +714,7 @@ static void __init lsm_early_task(struct task_struct *task)
 	do {							\
 		struct security_hook_list *P;			\
 								\
-		hlist_for_each_entry(P, &security_hook_heads.FUNC, list) { \
+		security_for_each_hook(P, FUNC, list) { \
 			RC = P->hook.FUNC(__VA_ARGS__);		\
 			if (RC != 0)				\
 				break;				\

@@ -28,6 +28,7 @@
 #include <linux/security.h>
 #include <linux/init.h>
 #include <linux/rculist.h>
+#include <linux/jump_label.h>
 
 /**
  * union security_list_options - Linux Security Module hook function list
@@ -1476,6 +1477,8 @@ struct security_hook_list {
 	struct hlist_head		*head;
 	union security_list_options	hook;
 	char				*lsm;
+	struct static_key_false		*key;
+	bool 				default_disabled;
 } __randomize_layout;
 
 /*
@@ -1490,6 +1493,11 @@ struct lsm_blob_sizes {
 	int	lbs_task;
 };
 
+
+#define LSM_HOOK(RET, FUNC, ...) DECLARE_STATIC_KEY_FALSE(key_##FUNC);
+#include <linux/lsm_hook_names.h>
+#undef LSM_HOOK
+
 /*
  * Initializing a security_hook_list structure takes
  * up a lot of space in a source file. This macro takes
@@ -1497,7 +1505,8 @@ struct lsm_blob_sizes {
  * text involved.
  */
 #define LSM_HOOK_INIT(HEAD, HOOK) \
-	{ .head = &security_hook_heads.HEAD, .hook = { .HEAD = HOOK } }
+	{ .head = &security_hook_heads.HEAD, .hook = { .HEAD = HOOK },  \
+	  .key = &key_##HEAD }
 
 extern struct security_hook_heads security_hook_heads;
 extern char *lsm_names;
