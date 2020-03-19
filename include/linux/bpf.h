@@ -433,6 +433,10 @@ struct btf_func_model {
  * programs only. Should not be used with normal calls and indirect calls.
  */
 #define BPF_TRAMP_F_SKIP_FRAME		BIT(2)
+/* Override the return value of the original function. This flag only makes
+ * sense for fexit trampolines.
+ */
+#define BPF_TRAMP_F_OVERRIDE_RETURN     BIT(3)
 
 /* Each call __bpf_prog_enter + call bpf_func + call __bpf_prog_exit is ~50
  * bytes on x86.  Pick a number to fit into BPF_IMAGE_SIZE / 2
