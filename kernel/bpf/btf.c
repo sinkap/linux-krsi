@@ -3710,7 +3710,14 @@ bool btf_ctx_access(int off, int size, enum bpf_access_type type,
 	}
 
 	if (arg == nr_args) {
-		if (prog->expected_attach_type == BPF_TRACE_FEXIT) {
+		/* BPF_LSM_MAC programs only have int and void functions they
+		 * can be attached to. When they are attached to a void function
+		 * they result in the creation of an FEXIT trampoline and when
+		 * to a function that returns an int, a MODIFY_RETURN
+		 * trampoline.
+		 */
+		if (prog->expected_attach_type == BPF_TRACE_FEXIT ||
+		    prog->expected_attach_type == BPF_LSM_MAC) {
 			if (!t)
 				return true;
 			t = btf_type_by_id(btf, t->type);
