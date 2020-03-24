@@ -91,7 +91,7 @@ static int hyperv_die_event(struct notifier_block *nb, unsigned long val,
 	 * doing hyperv_report_panic_msg() later with kmsg data, don't do
 	 * the notification here.
 	 */
-	if (hyperv_report_reg())
+	if (hyperv_report_reg() && panic_on_oops)
 		hyperv_report_panic(regs, val);
 	return NOTIFY_DONE;
 }
