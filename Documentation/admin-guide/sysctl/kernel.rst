@@ -452,8 +452,8 @@ modprobe:
 The path to the usermode helper for autoloading kernel modules, by
 default "/sbin/modprobe".  This binary is executed when the kernel
 requests a module.  For example, if userspace passes an unknown
-filesystem type "foo" to mount(), then the kernel will automatically
-request the module "fs-foo.ko" by executing this usermode helper.
+filesystem type to mount(), then the kernel will automatically request
+the corresponding filesystem module by executing this usermode helper.
 This usermode helper should insert the needed module into the kernel.
 
 This sysctl only affects module autoloading.  It has no effect on the
