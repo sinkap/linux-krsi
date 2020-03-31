@@ -417,7 +417,9 @@ extern int __init register_nfs_fs(void);
 extern void __exit unregister_nfs_fs(void);
 extern bool nfs_sb_active(struct super_block *sb);
 extern void nfs_sb_deactive(struct super_block *sb);
-
+extern int nfs_client_for_each_server(struct nfs_client *clp,
+				      int (*fn)(struct nfs_server *, void *),
+				      void *data);
 /* io.c */
 extern void nfs_start_io_read(struct inode *inode);
 extern void nfs_end_io_read(struct inode *inode);
@@ -515,13 +517,25 @@ int nfs_filemap_write_and_wait_range(struct address_space *mapping,
 		loff_t lstart, loff_t lend);
 
 #ifdef CONFIG_NFS_V4_1
+static inline void
+pnfs_bucket_clear_pnfs_ds_commit_verifiers(struct pnfs_commit_bucket *buckets,
+		unsigned int nbuckets)
+{
+	unsigned int i;
+
+	for (i = 0; i < nbuckets; i++)
+		buckets[i].direct_verf.committed = NFS_INVALID_STABLE_HOW;
+}
 static inline
 void nfs_clear_pnfs_ds_commit_verifiers(struct pnfs_ds_commit_info *cinfo)
 {
-	int i;
+	struct pnfs_commit_array *array;
 
-	for (i = 0; i < cinfo->nbuckets; i++)
-		cinfo->buckets[i].direct_verf.committed = NFS_INVALID_STABLE_HOW;
+	rcu_read_lock();
+	list_for_each_entry_rcu(array, &cinfo->commits, cinfo_list)
+		pnfs_bucket_clear_pnfs_ds_commit_verifiers(array->buckets,
+				array->nbuckets);
+	rcu_read_unlock();
 }
 #else
 static inline
@@ -540,6 +554,14 @@ nfs_write_verifier_cmp(const struct nfs_write_verifier *v1,
 		const struct nfs_write_verifier *v2)
 {
 	return memcmp(v1->data, v2->data, sizeof(v1->data));
+}
+
+static inline bool
+nfs_write_match_verf(const struct nfs_writeverf *verf,
+		struct nfs_page *req)
+{
+	return verf->committed > NFS_UNSTABLE &&
+		!nfs_write_verifier_cmp(&req->wb_verf, &verf->verifier);
 }
 
 /* unlink.c */

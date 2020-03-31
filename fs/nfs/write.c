@@ -1707,7 +1707,7 @@ int nfs_initiate_commit(struct rpc_clnt *clnt, struct nfs_commit_data *data,
 		.callback_ops = call_ops,
 		.callback_data = data,
 		.workqueue = nfsiod_workqueue,
-		.flags = RPC_TASK_ASYNC | flags,
+		.flags = RPC_TASK_ASYNC | RPC_TASK_CRED_NOREF | flags,
 		.priority = priority,
 	};
 	/* Set up the initial task struct.  */
@@ -1746,14 +1746,19 @@ void nfs_init_commit(struct nfs_commit_data *data,
 		     struct pnfs_layout_segment *lseg,
 		     struct nfs_commit_info *cinfo)
 {
-	struct nfs_page *first = nfs_list_entry(head->next);
-	struct nfs_open_context *ctx = nfs_req_openctx(first);
-	struct inode *inode = d_inode(ctx->dentry);
+	struct nfs_page *first;
+	struct nfs_open_context *ctx;
+	struct inode *inode;
 
 	/* Set up the RPC argument and reply structs
 	 * NB: take care not to mess about with data->commit et al. */
 
-	list_splice_init(head, &data->pages);
+	if (head)
+		list_splice_init(head, &data->pages);
+
+	first = nfs_list_entry(data->pages.next);
+	ctx = nfs_req_openctx(first);
+	inode = d_inode(ctx->dentry);
 
 	data->inode	  = inode;
 	data->cred	  = ctx->cred;
@@ -1869,8 +1874,7 @@ static void nfs_commit_release_pages(struct nfs_commit_data *data)
 
 		/* Okay, COMMIT succeeded, apparently. Check the verifier
 		 * returned by the server against all stored verfs. */
-		if (verf->committed > NFS_UNSTABLE &&
-		    !nfs_write_verifier_cmp(&req->wb_verf, &verf->verifier)) {
+		if (nfs_write_match_verf(verf, req)) {
 			/* We have a match */
 			if (req->wb_page)
 				nfs_inode_remove_request(req);
