@@ -801,7 +801,7 @@ static void __do_notify(struct mqueue_inode_info *info)
 			 * bypass check_kill_permission(). It is from kernel
 			 * but si_fromuser() can't know this.
 			 */
-			task = pid_task(info->notify_owner, PIDTYPE_PID);
+			task = pid_task(info->notify_owner, PIDTYPE_TGID);
 			if (task)
 				do_send_sig_info(info->notify.sigev_signo,
 						&sig_i, task, PIDTYPE_TGID);
