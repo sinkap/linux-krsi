@@ -3304,7 +3304,7 @@ static int fill_dc_scaling_info(const struct drm_plane_state *state,
 }
 
 static int get_fb_info(const struct amdgpu_framebuffer *amdgpu_fb,
-		       uint64_t *tiling_flags)
+		       uint64_t *tiling_flags, bool *tmz_surface)
 {
 	struct amdgpu_bo *rbo = gem_to_amdgpu_bo(amdgpu_fb->base.obj[0]);
 	int r = amdgpu_bo_reserve(rbo, false);
@@ -3318,6 +3318,9 @@ static int get_fb_info(const struct amdgpu_framebuffer *amdgpu_fb,
 
 	if (tiling_flags)
 		amdgpu_bo_get_tiling_flags(rbo, tiling_flags);
+
+	if (tmz_surface)
+		*tmz_surface = amdgpu_bo_encrypted(rbo);
 
 	amdgpu_bo_unreserve(rbo);
 
@@ -3401,7 +3404,8 @@ fill_plane_buffer_attributes(struct amdgpu_device *adev,
 			     union dc_tiling_info *tiling_info,
 			     struct plane_size *plane_size,
 			     struct dc_plane_dcc_param *dcc,
-			     struct dc_plane_address *address)
+			     struct dc_plane_address *address,
+			     bool tmz_surface)
 {
 	const struct drm_framebuffer *fb = &afb->base;
 	int ret;
@@ -3410,6 +3414,8 @@ fill_plane_buffer_attributes(struct amdgpu_device *adev,
 	memset(plane_size, 0, sizeof(*plane_size));
 	memset(dcc, 0, sizeof(*dcc));
 	memset(address, 0, sizeof(*address));
+
+	address->tmz_surface = tmz_surface;
 
 	if (format < SURFACE_PIXEL_FORMAT_VIDEO_BEGIN) {
 		plane_size->surface_size.x = 0;
@@ -3599,7 +3605,8 @@ fill_dc_plane_info_and_addr(struct amdgpu_device *adev,
 			    const struct drm_plane_state *plane_state,
 			    const uint64_t tiling_flags,
 			    struct dc_plane_info *plane_info,
-			    struct dc_plane_address *address)
+			    struct dc_plane_address *address,
+			    bool tmz_surface)
 {
 	const struct drm_framebuffer *fb = plane_state->fb;
 	const struct amdgpu_framebuffer *afb =
@@ -3638,6 +3645,9 @@ fill_dc_plane_info_and_addr(struct amdgpu_device *adev,
 		break;
 	case DRM_FORMAT_NV12:
 		plane_info->format = SURFACE_PIXEL_FORMAT_VIDEO_420_YCrCb;
+		break;
+	case DRM_FORMAT_P010:
+		plane_info->format = SURFACE_PIXEL_FORMAT_VIDEO_420_10bpc_YCrCb;
 		break;
 	default:
 		DRM_ERROR(
@@ -3678,7 +3688,7 @@ fill_dc_plane_info_and_addr(struct amdgpu_device *adev,
 					   plane_info->rotation, tiling_flags,
 					   &plane_info->tiling_info,
 					   &plane_info->plane_size,
-					   &plane_info->dcc, address);
+					   &plane_info->dcc, address, tmz_surface);
 	if (ret)
 		return ret;
 
@@ -3701,6 +3711,7 @@ static int fill_dc_plane_attributes(struct amdgpu_device *adev,
 	struct dc_plane_info plane_info;
 	uint64_t tiling_flags;
 	int ret;
+	bool tmz_surface = false;
 
 	ret = fill_dc_scaling_info(plane_state, &scaling_info);
 	if (ret)
@@ -3711,13 +3722,14 @@ static int fill_dc_plane_attributes(struct amdgpu_device *adev,
 	dc_plane_state->clip_rect = scaling_info.clip_rect;
 	dc_plane_state->scaling_quality = scaling_info.scaling_quality;
 
-	ret = get_fb_info(amdgpu_fb, &tiling_flags);
+	ret = get_fb_info(amdgpu_fb, &tiling_flags, &tmz_surface);
 	if (ret)
 		return ret;
 
 	ret = fill_dc_plane_info_and_addr(adev, plane_state, tiling_flags,
 					  &plane_info,
-					  &dc_plane_state->address);
+					  &dc_plane_state->address,
+					  tmz_surface);
 	if (ret)
 		return ret;
 
@@ -5329,6 +5341,7 @@ static int dm_plane_helper_prepare_fb(struct drm_plane *plane,
 	uint64_t tiling_flags;
 	uint32_t domain;
 	int r;
+	bool tmz_surface = false;
 
 	dm_plane_state_old = to_dm_plane_state(plane->state);
 	dm_plane_state_new = to_dm_plane_state(new_state);
@@ -5377,6 +5390,8 @@ static int dm_plane_helper_prepare_fb(struct drm_plane *plane,
 
 	amdgpu_bo_get_tiling_flags(rbo, &tiling_flags);
 
+	tmz_surface = amdgpu_bo_encrypted(rbo);
+
 	ttm_eu_backoff_reservation(&ticket, &list);
 
 	afb->address = amdgpu_bo_gpu_offset(rbo);
@@ -5391,7 +5406,7 @@ static int dm_plane_helper_prepare_fb(struct drm_plane *plane,
 			adev, afb, plane_state->format, plane_state->rotation,
 			tiling_flags, &plane_state->tiling_info,
 			&plane_state->plane_size, &plane_state->dcc,
-			&plane_state->address);
+			&plane_state->address, tmz_surface);
 	}
 
 	return 0;
@@ -5535,6 +5550,8 @@ static int get_plane_formats(const struct drm_plane *plane,
 
 		if (plane_cap && plane_cap->pixel_format_support.nv12)
 			formats[num_formats++] = DRM_FORMAT_NV12;
+		if (plane_cap && plane_cap->pixel_format_support.p010)
+			formats[num_formats++] = DRM_FORMAT_P010;
 		break;
 
 	case DRM_PLANE_TYPE_OVERLAY:
@@ -5587,12 +5604,15 @@ static int amdgpu_dm_plane_init(struct amdgpu_display_manager *dm,
 	}
 
 	if (plane->type == DRM_PLANE_TYPE_PRIMARY &&
-	    plane_cap && plane_cap->pixel_format_support.nv12) {
+	    plane_cap &&
+	    (plane_cap->pixel_format_support.nv12 ||
+	     plane_cap->pixel_format_support.p010)) {
 		/* This only affects YUV formats. */
 		drm_plane_create_color_properties(
 			plane,
 			BIT(DRM_COLOR_YCBCR_BT601) |
-			BIT(DRM_COLOR_YCBCR_BT709),
+			BIT(DRM_COLOR_YCBCR_BT709) |
+			BIT(DRM_COLOR_YCBCR_BT2020),
 			BIT(DRM_COLOR_YCBCR_LIMITED_RANGE) |
 			BIT(DRM_COLOR_YCBCR_FULL_RANGE),
 			DRM_COLOR_YCBCR_BT709, DRM_COLOR_YCBCR_LIMITED_RANGE);
@@ -6562,6 +6582,7 @@ static void amdgpu_dm_commit_planes(struct drm_atomic_state *state,
 	unsigned long flags;
 	struct amdgpu_bo *abo;
 	uint64_t tiling_flags;
+	bool tmz_surface = false;
 	uint32_t target_vblank, last_flip_vblank;
 	bool vrr_active = amdgpu_dm_vrr_active(acrtc_state);
 	bool pflip_present = false;
@@ -6656,12 +6677,14 @@ static void amdgpu_dm_commit_planes(struct drm_atomic_state *state,
 
 		amdgpu_bo_get_tiling_flags(abo, &tiling_flags);
 
+		tmz_surface = amdgpu_bo_encrypted(abo);
+
 		amdgpu_bo_unreserve(abo);
 
 		fill_dc_plane_info_and_addr(
 			dm->adev, new_plane_state, tiling_flags,
 			&bundle->plane_infos[planes_count],
-			&bundle->flip_addrs[planes_count].address);
+			&bundle->flip_addrs[planes_count].address, tmz_surface);
 
 		bundle->surface_updates[planes_count].plane_info =
 			&bundle->plane_infos[planes_count];
@@ -8029,6 +8052,7 @@ dm_determine_update_type_for_commit(struct amdgpu_display_manager *dm,
 			struct dc_flip_addrs *flip_addr = &bundle->flip_addrs[num_plane];
 			struct dc_scaling_info *scaling_info = &bundle->scaling_infos[num_plane];
 			uint64_t tiling_flags;
+			bool tmz_surface = false;
 
 			new_plane_crtc = new_plane_state->crtc;
 			new_dm_plane_state = to_dm_plane_state(new_plane_state);
@@ -8074,14 +8098,14 @@ dm_determine_update_type_for_commit(struct amdgpu_display_manager *dm,
 			bundle->surface_updates[num_plane].scaling_info = scaling_info;
 
 			if (amdgpu_fb) {
-				ret = get_fb_info(amdgpu_fb, &tiling_flags);
+				ret = get_fb_info(amdgpu_fb, &tiling_flags, &tmz_surface);
 				if (ret)
 					goto cleanup;
 
 				ret = fill_dc_plane_info_and_addr(
 					dm->adev, new_plane_state, tiling_flags,
 					plane_info,
-					&flip_addr->address);
+					&flip_addr->address, tmz_surface);
 				if (ret)
 					goto cleanup;
 

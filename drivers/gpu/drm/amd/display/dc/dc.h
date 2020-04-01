@@ -39,7 +39,7 @@
 #include "inc/hw/dmcu.h"
 #include "dml/display_mode_lib.h"
 
-#define DC_VER "3.2.76"
+#define DC_VER "3.2.77"
 
 #define MAX_SURFACES 3
 #define MAX_PLANES 6
@@ -726,6 +726,7 @@ union surface_update_flags {
 		uint32_t output_tf_change:1;
 		uint32_t pixel_format_change:1;
 		uint32_t plane_size_change:1;
+		uint32_t gamut_remap_change:1;
 
 		/* Full updates */
 		uint32_t new_plane:1;
@@ -760,6 +761,7 @@ struct dc_plane_state {
 	struct dc_csc_transform input_csc_color_matrix;
 	struct fixed31_32 coeff_reduction_factor;
 	struct fixed31_32 hdr_mult;
+	struct colorspace_transform gamut_remap_matrix;
 
 	// TODO: No longer used, remove
 	struct dc_hdr_static_metadata hdr_static_ctx;
@@ -839,6 +841,7 @@ struct dc_surface_update {
 	const struct dc_transfer_func *func_shaper;
 	const struct dc_3dlut *lut3d_func;
 	const struct dc_transfer_func *blend_tf;
+	const struct colorspace_transform *gamut_remap_matrix;
 };
 
 /*

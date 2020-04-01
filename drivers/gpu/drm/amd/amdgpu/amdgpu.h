@@ -177,6 +177,8 @@ extern int sched_policy;
 static const int sched_policy = KFD_SCHED_POLICY_HWS;
 #endif
 
+extern int amdgpu_tmz;
+
 #ifdef CONFIG_DRM_AMDGPU_SI
 extern int amdgpu_si_support;
 #endif
@@ -388,6 +390,13 @@ struct amdgpu_sa_bo {
 int amdgpu_fence_slab_init(void);
 void amdgpu_fence_slab_fini(void);
 
+enum amdgpu_ib_pool_type {
+	AMDGPU_IB_POOL_NORMAL = 0,
+	AMDGPU_IB_POOL_VM,
+	AMDGPU_IB_POOL_DIRECT,
+
+	AMDGPU_IB_POOL_MAX
+};
 /*
  * IRQS.
  */
@@ -439,7 +448,9 @@ struct amdgpu_fpriv {
 int amdgpu_file_to_fpriv(struct file *filp, struct amdgpu_fpriv **fpriv);
 
 int amdgpu_ib_get(struct amdgpu_device *adev, struct amdgpu_vm *vm,
-		  unsigned size, struct amdgpu_ib *ib);
+		  unsigned size,
+		  enum amdgpu_ib_pool_type pool,
+		  struct amdgpu_ib *ib);
 void amdgpu_ib_free(struct amdgpu_device *adev, struct amdgpu_ib *ib,
 		    struct dma_fence *f);
 int amdgpu_ib_schedule(struct amdgpu_ring *ring, unsigned num_ibs,
@@ -843,7 +854,7 @@ struct amdgpu_device {
 	unsigned			num_rings;
 	struct amdgpu_ring		*rings[AMDGPU_MAX_RINGS];
 	bool				ib_pool_ready;
-	struct amdgpu_sa_manager	ring_tmp_bo;
+	struct amdgpu_sa_manager	ring_tmp_bo[AMDGPU_IB_POOL_MAX];
 
 	/* interrupts */
 	struct amdgpu_irq		irq;
@@ -923,7 +934,7 @@ struct amdgpu_device {
 	atomic64_t gart_pin_size;
 
 	/* soc15 register offset based on ip, instance and  segment */
-	uint32_t 		*reg_offset[MAX_HWIP][HWIP_MAX_INSTANCE];
+	uint32_t		*reg_offset[MAX_HWIP][HWIP_MAX_INSTANCE];
 
 	/* delayed work_func for deferring clockgating during resume */
 	struct delayed_work     delayed_init_work;
@@ -974,6 +985,11 @@ struct amdgpu_device {
 
 	bool                            pm_sysfs_en;
 	bool                            ucode_sysfs_en;
+
+	/* Chip product information */
+	char				product_number[16];
+	char				product_name[32];
+	char				serial[16];
 };
 
 static inline struct amdgpu_device *amdgpu_ttm_adev(struct ttm_bo_device *bdev)
@@ -1248,5 +1264,9 @@ _name##_show(struct device *dev,					\
 									\
 static struct device_attribute pmu_attr_##_name = __ATTR_RO(_name)
 
-#endif
+static inline bool amdgpu_is_tmz(struct amdgpu_device *adev)
+{
+       return adev->gmc.tmz_enabled;
+}
 
+#endif

@@ -216,7 +216,8 @@ static int uvd_v6_0_enc_get_create_msg(struct amdgpu_ring *ring, uint32_t handle
 	uint64_t addr;
 	int i, r;
 
-	r = amdgpu_job_alloc_with_ib(ring->adev, ib_size_dw * 4, &job);
+	r = amdgpu_job_alloc_with_ib(ring->adev, ib_size_dw * 4,
+					AMDGPU_IB_POOL_DIRECT, &job);
 	if (r)
 		return r;
 
@@ -279,7 +280,8 @@ static int uvd_v6_0_enc_get_destroy_msg(struct amdgpu_ring *ring,
 	uint64_t addr;
 	int i, r;
 
-	r = amdgpu_job_alloc_with_ib(ring->adev, ib_size_dw * 4, &job);
+	r = amdgpu_job_alloc_with_ib(ring->adev, ib_size_dw * 4,
+					AMDGPU_IB_POOL_DIRECT, &job);
 	if (r)
 		return r;
 
@@ -535,12 +537,9 @@ done:
 static int uvd_v6_0_hw_fini(void *handle)
 {
 	struct amdgpu_device *adev = (struct amdgpu_device *)handle;
-	struct amdgpu_ring *ring = &adev->uvd.inst->ring;
 
 	if (RREG32(mmUVD_STATUS) != 0)
 		uvd_v6_0_stop(adev);
-
-	ring->sched.ready = false;
 
 	return 0;
 }

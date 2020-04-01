@@ -85,6 +85,7 @@
 #include "vm_helper.h"
 #include "dcn20/dcn20_vmid.h"
 #include "dce/dmub_psr.h"
+#include "dce/dmub_abm.h"
 
 #define SOC_BOUNDING_BOX_VALID false
 #define DC_LOGGER_INIT(logger)
@@ -300,7 +301,7 @@ struct _vcs_dpi_soc_bounding_box_st dcn2_1_soc = {
 	.xfc_bus_transport_time_us = 4,
 	.xfc_xbuf_latency_tolerance_us = 4,
 	.use_urgent_burst_bw = 1,
-	.num_states = 9
+	.num_states = 8
 };
 
 #ifndef MAX
@@ -838,7 +839,8 @@ static const struct dc_plane_cap plane_cap = {
 	.pixel_format_support = {
 			.argb8888 = true,
 			.nv12 = true,
-			.fp16 = true
+			.fp16 = true,
+			.p010 = true
 	},
 
 	.max_upscale_factor = {
@@ -990,9 +992,12 @@ static void dcn21_resource_destruct(struct dcn21_resource_pool *pool)
 		pool->base.dp_clock_source = NULL;
 	}
 
-
-	if (pool->base.abm != NULL)
-		dce_abm_destroy(&pool->base.abm);
+	if (pool->base.abm != NULL) {
+		if (pool->base.abm->ctx->dc->debug.disable_dmcu)
+			dmub_abm_destroy(&pool->base.abm);
+		else
+			dce_abm_destroy(&pool->base.abm);
+	}
 
 	if (pool->base.dmcu != NULL)
 		dce_dmcu_destroy(&pool->base.dmcu);
@@ -1376,21 +1381,8 @@ static void update_bw_bounding_box(struct dc *dc, struct clk_bw_params *bw_param
 	unsigned int i, j, k;
 	int closest_clk_lvl;
 
-	// diags does not retrieve proper values from SMU
-	// cap states to 5 and make state 5 the max state
-	if (IS_FPGA_MAXIMUS_DC(dc->ctx->dce_environment) || IS_DIAG_DC(dc->ctx->dce_environment)) {
-		dcn2_1_soc.num_states = 5;
-
-		dcn2_1_soc.clock_limits[5].state = 5;
-		dcn2_1_soc.clock_limits[5].dcfclk_mhz = 810.0;
-		dcn2_1_soc.clock_limits[5].fabricclk_mhz = 1600.0;
-		dcn2_1_soc.clock_limits[5].dispclk_mhz = 1395.0;
-		dcn2_1_soc.clock_limits[5].dppclk_mhz = 1285.0;
-		dcn2_1_soc.clock_limits[5].phyclk_mhz = 1325.0;
-		dcn2_1_soc.clock_limits[5].socclk_mhz = 953.0;
-		dcn2_1_soc.clock_limits[5].dscclk_mhz = 489.0;
-		dcn2_1_soc.clock_limits[5].dram_speed_mts = 4266.0;
-	} else {
+	// Default clock levels are used for diags, which may lead to overclocking.
+	if (!IS_FPGA_MAXIMUS_DC(dc->ctx->dce_environment) && !IS_DIAG_DC(dc->ctx->dce_environment)) {
 		dcn2_1_ip.max_num_otg = pool->base.res_cap->num_timing_generator;
 		dcn2_1_ip.max_num_dpp = pool->base.pipe_count;
 		dcn2_1_soc.num_chans = bw_params->num_channels;
@@ -1403,16 +1395,16 @@ static void update_bw_bounding_box(struct dc *dc, struct clk_bw_params *bw_param
 		dcn2_1_soc.clock_limits[0].dram_speed_mts = clk_table->entries[0].memclk_mhz * 2;
 
 		/*
-		 * Other levels: find cloest DCN clocks that fit the given clock limit using dcfclk
-		 * as indicater
+		 * Other levels: find closest DCN clocks that fit the given clock limit using dcfclk
+		 * as indicator
 		 */
 
 		closest_clk_lvl = -1;
 		/* index currently being filled */
 		k = 1;
 		for (i = 1; i < clk_table->num_entries; i++) {
-			/* loop backwards, skip duplicate state, +1 because SMU has precision issue */
-			for (j = dcn2_1_soc.num_states - 2; j >= k; j--) {
+			/* loop backwards, skip duplicate state*/
+			for (j = dcn2_1_soc.num_states - 1; j >= k; j--) {
 				if ((unsigned int) dcn2_1_soc.clock_limits[j].dcfclk_mhz <= clk_table->entries[i].dcfclk_mhz) {
 					closest_clk_lvl = j;
 					break;
@@ -1437,12 +1429,12 @@ static void update_bw_bounding_box(struct dc *dc, struct clk_bw_params *bw_param
 				k++;
 			}
 		}
-
-		/* duplicate last level */
-		dcn2_1_soc.clock_limits[k] = dcn2_1_soc.clock_limits[k - 1];
-		dcn2_1_soc.clock_limits[k].state = k;
-		dcn2_1_soc.num_states = k + 1;
+		dcn2_1_soc.num_states = k;
 	}
+
+	/* duplicate last level */
+	dcn2_1_soc.clock_limits[dcn2_1_soc.num_states] = dcn2_1_soc.clock_limits[dcn2_1_soc.num_states - 1];
+	dcn2_1_soc.clock_limits[dcn2_1_soc.num_states].state = dcn2_1_soc.num_states;
 
 	dml_init_instance(&dc->dml, &dcn2_1_soc, &dcn2_1_ip, DML_PROJECT_DCN21);
 }
@@ -1854,14 +1846,16 @@ static bool dcn21_resource_construct(
 		goto create_fail;
 	}
 
-	pool->base.dmcu = dcn21_dmcu_create(ctx,
-			&dmcu_regs,
-			&dmcu_shift,
-			&dmcu_mask);
-	if (pool->base.dmcu == NULL) {
-		dm_error("DC: failed to create dmcu!\n");
-		BREAK_TO_DEBUGGER();
-		goto create_fail;
+	if (!dc->debug.disable_dmcu) {
+		pool->base.dmcu = dcn21_dmcu_create(ctx,
+				&dmcu_regs,
+				&dmcu_shift,
+				&dmcu_mask);
+		if (pool->base.dmcu == NULL) {
+			dm_error("DC: failed to create dmcu!\n");
+			BREAK_TO_DEBUGGER();
+			goto create_fail;
+		}
 	}
 
 	if (dc->debug.disable_dmcu) {
@@ -1874,15 +1868,16 @@ static bool dcn21_resource_construct(
 		}
 	}
 
-	pool->base.abm = dce_abm_create(ctx,
+	if (dc->debug.disable_dmcu)
+		pool->base.abm = dmub_abm_create(ctx,
 			&abm_regs,
 			&abm_shift,
 			&abm_mask);
-	if (pool->base.abm == NULL) {
-		dm_error("DC: failed to create abm!\n");
-		BREAK_TO_DEBUGGER();
-		goto create_fail;
-	}
+	else
+		pool->base.abm = dce_abm_create(ctx,
+			&abm_regs,
+			&abm_shift,
+			&abm_mask);
 
 	pool->base.pp_smu = dcn21_pp_smu_create(ctx);
 
