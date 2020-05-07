@@ -249,7 +249,7 @@ DEFINE_LSM(loadpin) = {
 };
 
 /* Should not be mutable after boot, so not listed in sysfs (perm == 0). */
-module_param(enforce, int, 0);
-MODULE_PARM_DESC(enforce, "Enforce module/firmware pinning");
+module_param_named(enabled, enforce, int, 0);
+MODULE_PARM_DESC(enabled, "Enforce module/firmware pinning");
 module_param_array_named(exclude, exclude_read_files, charp, NULL, 0);
 MODULE_PARM_DESC(exclude, "Exclude pinning specific read file types");
