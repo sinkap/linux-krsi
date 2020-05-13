@@ -7,7 +7,7 @@
 #include <linux/etherdevice.h>
 #include <linux/filter.h>
 #include <linux/sched/signal.h>
-#include <net/bpf_sk_storage.h>
+#include <linux/bpf_local_storage.h>
 #include <net/sock.h>
 #include <net/tcp.h>
 #include <linux/error-injection.h>

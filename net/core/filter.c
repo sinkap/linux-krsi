@@ -72,7 +72,7 @@
 #include <net/seg6_local.h>
 #include <net/lwtunnel.h>
 #include <net/ipv6_stubs.h>
-#include <net/bpf_sk_storage.h>
+#include <linux/bpf_local_storage.h>
 
 /**
  *	sk_filter_trim_cap - run a packet through a socket filter

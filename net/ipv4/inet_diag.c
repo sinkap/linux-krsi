@@ -23,7 +23,7 @@
 #include <net/inet_hashtables.h>
 #include <net/inet_timewait_sock.h>
 #include <net/inet6_hashtables.h>
-#include <net/bpf_sk_storage.h>
+#include <linux/bpf_local_storage.h>
 #include <net/netlink.h>
 
 #include <linux/inet.h>

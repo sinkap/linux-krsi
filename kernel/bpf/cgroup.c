@@ -14,8 +14,8 @@
 #include <linux/string.h>
 #include <linux/bpf.h>
 #include <linux/bpf-cgroup.h>
+#include <linux/bpf_local_storage.h>
 #include <net/sock.h>
-#include <net/bpf_sk_storage.h>
 
 #include "../cgroup/cgroup-internal.h"
 
