@@ -130,8 +130,8 @@
 #include <linux/sock_diag.h>
 
 #include <linux/filter.h>
+#include <linux/bpf_local_storage.h>
 #include <net/sock_reuseport.h>
-#include <net/bpf_sk_storage.h>
 
 #include <trace/events/sock.h>
 
