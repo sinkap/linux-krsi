@@ -22,6 +22,7 @@
 #include <linux/list_lru.h>
 #include <linux/iversion.h>
 #include <trace/events/writeback.h>
+#include <linux/bpf_local_storage.h>
 #include "internal.h"
 
 /*
@@ -257,6 +258,11 @@ void __destroy_inode(struct inode *inode)
 	security_inode_free(inode);
 	fsnotify_inode_delete(inode);
 	locks_free_lock_context(inode);
+
+#ifdef CONFIG_BPF_SYSCALL
+	bpf_inode_storage_free(inode);
+#endif
+
 	if (!inode->i_nlink) {
 		WARN_ON(atomic_long_read(&inode->i_sb->s_remove_count) == 0);
 		atomic_long_dec(&inode->i_sb->s_remove_count);

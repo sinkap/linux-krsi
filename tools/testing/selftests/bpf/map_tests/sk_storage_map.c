@@ -21,7 +21,7 @@
 
 static struct bpf_create_map_attr xattr = {
 	.name = "sk_storage_map",
-	.map_type = BPF_MAP_TYPE_SK_STORAGE,
+	.map_type = BPF_MAP_TYPE_LOCAL_STORAGE,
 	.map_flags = BPF_F_NO_PREALLOC,
 	.max_entries = 0,
 	.key_size = 4,
