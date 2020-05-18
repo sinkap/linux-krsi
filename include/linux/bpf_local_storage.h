@@ -160,4 +160,14 @@ struct bpf_local_storage_data *
 bpf_local_storage_update(void *owner, struct bpf_map *map, void *value,
 			 u64 map_flags);
 
+#ifdef CONFIG_BPF_LSM
+extern const struct bpf_func_proto bpf_inode_storage_get_proto;
+extern const struct bpf_func_proto bpf_inode_storage_delete_proto;
+void bpf_inode_storage_free(struct inode *inode);
+#else
+static inline void bpf_inode_storage_free(struct inode *inode)
+{
+}
+#endif /* CONFIG_BPF_LSM */
+
 #endif /* _BPF_LOCAL_STORAGE_H */
