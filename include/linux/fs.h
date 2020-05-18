@@ -626,6 +626,7 @@ is_uncached_acl(struct posix_acl *acl)
 #define IOP_DEFAULT_READLINK	0x0010
 
 struct fsnotify_mark_connector;
+struct bpf_local_storage;
 
 /*
  * Keep mostly read-only and often accessed (especially for
@@ -740,6 +741,10 @@ struct inode {
 
 #ifdef CONFIG_FS_VERITY
 	struct fsverity_info	*i_verity_info;
+#endif
+
+#ifdef CONFIG_BPF_SYSCALL
+	struct bpf_local_storage __rcu	*inode_bpf_storage;
 #endif
 
 	void			*i_private; /* fs or device private pointer */

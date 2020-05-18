@@ -3,6 +3,7 @@
 #include "linux/bpf.h"
 #include "asm-generic/bug.h"
 #include "linux/err.h"
+#include "linux/fs.h"
 #include <linux/rculist.h>
 #include <linux/list.h>
 #include <linux/hash.h>
@@ -13,6 +14,7 @@
 #include <net/sock.h>
 #include <uapi/linux/sock_diag.h>
 #include <uapi/linux/btf.h>
+#include <linux/bpf_lsm.h>
 
 static atomic_t cache_idx;
 
@@ -26,6 +28,7 @@ struct bucket {
 
 enum bpf_local_storage_type {
 	BPF_LOCAL_STORAGE_SK,
+	BPF_LOCAL_STORAGE_INODE,
 };
 
 /* Thp map is not the primary owner of a bpf_local_storage_elem.
@@ -97,6 +100,7 @@ struct bpf_local_storage {
 	 */
 	union {
 		struct sock *sk;
+		struct inode *inode;
 	};
 	struct rcu_head rcu;
 	raw_spinlock_t lock;	/* Protect adding/removing from the "list" */
@@ -168,6 +172,8 @@ static struct bpf_local_storage_elem *sk_selem_alloc(
 static void __unlink_local_storage(struct bpf_local_storage *local_storage,
 				   bool uncharge_omem)
 {
+	struct bpf_storage_blob *bsb;
+	struct inode *inode;
 	struct sock *sk;
 
 	switch (local_storage->stype) {
@@ -180,6 +186,15 @@ static void __unlink_local_storage(struct bpf_local_storage *local_storage,
 		/* After this RCU_INIT, sk may be freed and cannot be used */
 		RCU_INIT_POINTER(sk->sk_bpf_storage, NULL);
 		local_storage->sk = NULL;
+		break;
+	case BPF_LOCAL_STORAGE_INODE:
+		inode = local_storage->inode;
+		bsb = bpf_inode(inode);
+		if (!bsb)
+			return;
+
+		RCU_INIT_POINTER(bsb->storage, NULL);
+		local_storage->inode = NULL;
 		break;
 	}
 }
@@ -341,6 +356,25 @@ sk_storage_lookup(struct sock *sk, struct bpf_map *map, bool cacheit_lockit)
 	return __local_storage_lookup(sk_storage, smap, cacheit_lockit);
 }
 
+static struct bpf_local_storage_data *inode_storage_lookup(
+	struct inode *inode, struct bpf_map *map, bool cacheit_lockit)
+{
+	struct bpf_local_storage *inode_storage;
+	struct bpf_local_storage_map *smap;
+	struct bpf_storage_blob *bsb;
+
+	bsb = bpf_inode(inode);
+	if (!bsb)
+		return ERR_PTR(-ENOENT);
+
+	inode_storage = rcu_dereference(bsb->storage);
+	if (!inode_storage)
+		return NULL;
+
+	smap = (struct bpf_local_storage_map *)map;
+	return __local_storage_lookup(inode_storage, smap, cacheit_lockit);
+}
+
 static int check_flags(const struct bpf_local_storage_data *old_sdata,
 		       u64 map_flags)
 {
@@ -437,6 +471,38 @@ uncharge:
 	return err;
 }
 
+static int inode_storage_alloc(struct inode *inode,
+			       struct bpf_local_storage_map *smap,
+			       struct bpf_local_storage_elem *first_selem)
+{
+	struct bpf_storage_blob *bsb;
+	struct bpf_local_storage *curr;
+	int err;
+
+	bsb = bpf_inode(inode);
+	if (!bsb)
+		return -EINVAL;
+
+	curr = bpf_local_storage_alloc(smap);
+	if (!curr)
+		return -ENOMEM;
+
+	curr->inode = inode;
+	curr->stype = BPF_LOCAL_STORAGE_INODE;
+
+	__selem_link(curr, first_selem);
+	selem_link_map(smap, first_selem);
+
+	err = publish_local_storage(first_selem,
+		(struct bpf_local_storage **)&bsb->storage, curr);
+	if (err) {
+		kfree(curr);
+		return err;
+	}
+
+	return 0;
+}
+
 static int check_update_flags(struct bpf_map *map, u64 map_flags)
 {
 	/* BPF_EXIST and BPF_NOEXIST cannot be both set */
@@ -453,6 +519,8 @@ static int map_to_storage_type(struct bpf_map *map)
 	switch (map->map_type) {
 	case BPF_MAP_TYPE_SK_STORAGE:
 		return BPF_LOCAL_STORAGE_SK;
+	case BPF_MAP_TYPE_INODE_STORAGE:
+		return BPF_LOCAL_STORAGE_INODE;
 	default:
 		return -EINVAL;
 	}
@@ -471,6 +539,8 @@ static struct bpf_local_storage_data *local_storage_update(
 	struct bpf_local_storage *local_storage;
 	struct bpf_local_storage_map *smap;
 	enum bpf_local_storage_type stype;
+	struct bpf_storage_blob *bsb;
+	struct inode *inode;
 	struct sock *sk;
 	int err;
 
@@ -488,6 +558,11 @@ static struct bpf_local_storage_data *local_storage_update(
 	case BPF_LOCAL_STORAGE_SK:
 		sk = owner;
 		local_storage = rcu_dereference(sk->sk_bpf_storage);
+		break;
+	case BPF_LOCAL_STORAGE_INODE:
+		inode = owner;
+		bsb = bpf_inode(inode);
+		local_storage = rcu_dereference(bsb->storage);
 		break;
 	default:
 		WARN_ON_ONCE(1);
@@ -510,6 +585,18 @@ static struct bpf_local_storage_data *local_storage_update(
 			if (err) {
 				kfree(selem);
 				atomic_sub(smap->elem_size, &sk->sk_omem_alloc);
+				return ERR_PTR(err);
+			}
+
+			return SDATA(selem);
+		case BPF_LOCAL_STORAGE_INODE:
+			selem = selem_alloc(smap, value);
+			if (!selem)
+				return ERR_PTR(-ENOMEM);
+
+			err = inode_storage_alloc(inode, smap, selem);
+			if (err) {
+				kfree(selem);
 				return ERR_PTR(err);
 			}
 
@@ -574,6 +661,13 @@ static struct bpf_local_storage_data *local_storage_update(
 			goto unlock_err;
 		}
 		break;
+	case BPF_LOCAL_STORAGE_INODE:
+		selem = selem_alloc(smap, value);
+		if (!selem) {
+			err = -ENOMEM;
+			goto unlock_err;
+		}
+		break;
 	}
 
 	/* First, link the new selem to the map */
@@ -602,6 +696,19 @@ static int sk_storage_delete(struct sock *sk, struct bpf_map *map)
 	struct bpf_local_storage_data *sdata;
 
 	sdata = sk_storage_lookup(sk, map, false);
+	if (!sdata)
+		return -ENOENT;
+
+	selem_unlink(SELEM(sdata));
+
+	return 0;
+}
+
+static int inode_storage_delete(struct inode *inode, struct bpf_map *map)
+{
+	struct bpf_local_storage_data *sdata;
+
+	sdata = inode_storage_lookup(inode, map, false);
 	if (!sdata)
 		return -ENOENT;
 
@@ -649,6 +756,55 @@ void bpf_sk_storage_free(struct sock *sk)
 		kfree_rcu(sk_storage, rcu);
 }
 
+/* Called by __destroy_inode() */
+void bpf_inode_storage_free(struct inode *inode)
+{
+	struct bpf_local_storage_elem *selem;
+	struct bpf_local_storage *local_storage;
+	bool free_inode_storage = false;
+	struct bpf_storage_blob *bsb;
+	struct hlist_node *n;
+
+	bsb = bpf_inode(inode);
+	if (!bsb)
+		return;
+
+	rcu_read_lock();
+
+	local_storage = rcu_dereference(bsb->storage);
+	if (!local_storage) {
+		rcu_read_unlock();
+		return;
+	}
+
+	/* Netiher the bpf_prog nor the bpf-map's syscall
+	 * could be modifying the local_storage->list now.
+	 * Thus, no elem can be added-to or deleted-from the
+	 * local_storage->list by the bpf_prog or by the bpf-map's syscall.
+	 *
+	 * It is racing with bpf_local_storage_map_free() alone
+	 * when unlinking elem from the local_storage->list and
+	 * the map's bucket->list.
+	 */
+	raw_spin_lock_bh(&local_storage->lock);
+	hlist_for_each_entry_safe(selem, n, &local_storage->list, snode) {
+		/* Always unlink from map before unlinking from
+		 * local_storage.
+		 */
+		selem_unlink_map(selem);
+		free_inode_storage =
+			__selem_unlink(local_storage, selem, false);
+	}
+	raw_spin_unlock_bh(&local_storage->lock);
+	rcu_read_unlock();
+
+	/* free_inoode_storage should always be true as long as
+	 * local_storage->list was non-empty.
+	 */
+	if (free_inode_storage)
+		kfree_rcu(local_storage, rcu);
+}
+
 static void bpf_local_storage_map_free(struct bpf_map *map)
 {
 	struct bpf_local_storage_elem *selem;
@@ -671,7 +827,7 @@ static void bpf_local_storage_map_free(struct bpf_map *map)
 	 *
 	 * The elem of this map can be cleaned up here
 	 * or by bpf_local_storage_free() during the destruction of the
-	 * owner object. eg. __sk_destruct.
+	 * owner object. eg. __sk_destruct or __destroy_inode.
 	 */
 	for (i = 0; i < (1U << smap->bucket_log); i++) {
 		b = &smap->buckets[i];
@@ -821,6 +977,21 @@ static void *bpf_sk_storage_lookup_elem(struct bpf_map *map, void *key)
 	return ERR_PTR(err);
 }
 
+static void *bpf_inode_storage_lookup_elem(struct bpf_map *map, void *key)
+{
+	struct bpf_local_storage_data *sdata;
+	struct inode *inode;
+	int err = -EINVAL;
+
+	if (key) {
+		inode = *(struct inode **)(key);
+		sdata = inode_storage_lookup(inode, map, true);
+		return sdata ? sdata->data : NULL;
+	}
+
+	return ERR_PTR(err);
+}
+
 static int bpf_sk_storage_update_elem(struct bpf_map *map, void *key,
 					 void *value, u64 map_flags)
 {
@@ -839,6 +1010,21 @@ static int bpf_sk_storage_update_elem(struct bpf_map *map, void *key,
 	return err;
 }
 
+static int bpf_inode_storage_update_elem(struct bpf_map *map, void *key,
+					 void *value, u64 map_flags)
+{
+	struct bpf_local_storage_data *sdata;
+	struct inode *inode;
+	int err = -EINVAL;
+
+	if (key) {
+		inode = *(struct inode **)(key);
+		sdata = local_storage_update(inode, map, value, map_flags);
+		return PTR_ERR_OR_ZERO(sdata);
+	}
+	return err;
+}
+
 static int bpf_sk_storage_delete_elem(struct bpf_map *map, void *key)
 {
 	struct socket *sock;
@@ -849,6 +1035,19 @@ static int bpf_sk_storage_delete_elem(struct bpf_map *map, void *key)
 	if (sock) {
 		err = sk_storage_delete(sock->sk, map);
 		sockfd_put(sock);
+	}
+
+	return err;
+}
+
+static int bpf_inode_storage_delete_elem(struct bpf_map *map, void *key)
+{
+	struct inode *inode;
+	int err = -EINVAL;
+
+	if (key) {
+		inode = *(struct inode **)(key);
+		err = inode_storage_delete(inode, map);
 	}
 
 	return err;
@@ -975,6 +1174,27 @@ BPF_CALL_4(bpf_sk_storage_get, struct bpf_map *, map, struct sock *, sk,
 	return (unsigned long)NULL;
 }
 
+BPF_CALL_4(bpf_inode_storage_get, struct bpf_map *, map, struct inode *, inode,
+	   void *, value, u64, flags)
+{
+	struct bpf_local_storage_data *sdata;
+
+	if (flags & ~(BPF_LOCAL_STORAGE_GET_F_CREATE))
+		return (unsigned long)NULL;
+
+	sdata = inode_storage_lookup(inode, map, true);
+	if (sdata)
+		return (unsigned long)sdata->data;
+
+	if (flags & BPF_LOCAL_STORAGE_GET_F_CREATE) {
+		sdata = local_storage_update(inode, map, value, BPF_NOEXIST);
+		return IS_ERR(sdata) ?
+			(unsigned long)NULL : (unsigned long)sdata->data;
+	}
+
+	return (unsigned long)NULL;
+}
+
 BPF_CALL_2(bpf_sk_storage_delete, struct bpf_map *, map, struct sock *, sk)
 {
 	if (refcount_inc_not_zero(&sk->sk_refcnt)) {
@@ -988,6 +1208,12 @@ BPF_CALL_2(bpf_sk_storage_delete, struct bpf_map *, map, struct sock *, sk)
 	return -ENOENT;
 }
 
+BPF_CALL_2(bpf_inode_storage_delete,
+	   struct bpf_map *, map, struct inode *, inode)
+{
+	return inode_storage_delete(inode, map);
+}
+
 const struct bpf_map_ops sk_storage_map_ops = {
 	.map_alloc_check = bpf_local_storage_map_alloc_check,
 	.map_alloc = bpf_local_storage_map_alloc,
@@ -996,6 +1222,17 @@ const struct bpf_map_ops sk_storage_map_ops = {
 	.map_lookup_elem = bpf_sk_storage_lookup_elem,
 	.map_update_elem = bpf_sk_storage_update_elem,
 	.map_delete_elem = bpf_sk_storage_delete_elem,
+	.map_check_btf = bpf_local_storage_map_check_btf,
+};
+
+const struct bpf_map_ops inode_storage_map_ops = {
+	.map_alloc_check = bpf_local_storage_map_alloc_check,
+	.map_alloc = bpf_local_storage_map_alloc,
+	.map_free = bpf_local_storage_map_free,
+	.map_get_next_key = notsupp_get_next_key,
+	.map_lookup_elem = bpf_inode_storage_lookup_elem,
+	.map_update_elem = bpf_inode_storage_update_elem,
+	.map_delete_elem = bpf_inode_storage_delete_elem,
 	.map_check_btf = bpf_local_storage_map_check_btf,
 };
 
@@ -1015,6 +1252,28 @@ const struct bpf_func_proto bpf_sk_storage_delete_proto = {
 	.ret_type	= RET_INTEGER,
 	.arg1_type	= ARG_CONST_MAP_PTR,
 	.arg2_type	= ARG_PTR_TO_SOCKET,
+};
+
+static int bpf_inode_storage_get_btf_ids[4];
+const struct bpf_func_proto bpf_inode_storage_get_proto = {
+	.func		= bpf_inode_storage_get,
+	.gpl_only	= false,
+	.ret_type	= RET_PTR_TO_MAP_VALUE_OR_NULL,
+	.arg1_type	= ARG_CONST_MAP_PTR,
+	.arg2_type	= ARG_PTR_TO_BTF_ID,
+	.arg3_type	= ARG_PTR_TO_MAP_VALUE_OR_NULL,
+	.arg4_type	= ARG_ANYTHING,
+	.btf_id		= bpf_inode_storage_get_btf_ids,
+};
+
+static int bpf_inode_storage_delete_btf_ids[2];
+const struct bpf_func_proto bpf_inode_storage_delete_proto = {
+	.func		= bpf_sk_storage_delete,
+	.gpl_only	= false,
+	.ret_type	= RET_INTEGER,
+	.arg1_type	= ARG_CONST_MAP_PTR,
+	.arg2_type	= ARG_PTR_TO_BTF_ID,
+	.btf_id		= bpf_inode_storage_delete_btf_ids,
 };
 
 struct bpf_sk_storage_diag {

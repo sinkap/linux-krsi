@@ -4,11 +4,14 @@
 #define _BPF_LOCAL_STORAGE_H
 
 struct sock;
+struct inode;
 
 void bpf_sk_storage_free(struct sock *sk);
 
 extern const struct bpf_func_proto bpf_sk_storage_get_proto;
 extern const struct bpf_func_proto bpf_sk_storage_delete_proto;
+extern const struct bpf_func_proto bpf_inode_storage_get_proto;
+extern const struct bpf_func_proto bpf_inode_storage_delete_proto;
 
 struct bpf_sk_storage_diag;
 struct sk_buff;
@@ -16,6 +19,7 @@ struct nlattr;
 struct sock;
 
 #ifdef CONFIG_BPF_SYSCALL
+void bpf_inode_storage_free(struct inode *inode);
 int bpf_sk_storage_clone(const struct sock *sk, struct sock *newsk);
 struct bpf_sk_storage_diag *
 bpf_sk_storage_diag_alloc(const struct nlattr *nla_stgs);
@@ -34,6 +38,9 @@ static inline struct bpf_sk_storage_diag *
 bpf_sk_storage_diag_alloc(const struct nlattr *nla)
 {
 	return NULL;
+}
+static inline void void bpf_inode_storage_free(struct inode *inode)
+{
 }
 static inline void bpf_sk_storage_diag_free(struct bpf_sk_storage_diag *diag)
 {
