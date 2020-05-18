@@ -117,11 +117,9 @@ static void cache_idx_free_##type(u16 idx)			        \
 	       sizeof(struct bpf_local_storage_elem)),                         \
 	      (U16_MAX - sizeof(struct bpf_local_storage_elem)))
 
-
 #define SELEM(_SDATA)                                                          \
 	container_of((_SDATA), struct bpf_local_storage_elem, sdata)
 #define SDATA(_SELEM) (&(_SELEM)->sdata)
-
 
 /* Helper functions for bpf_local_storage */
 int bpf_local_storage_map_alloc_check(union bpf_attr *attr);
@@ -170,5 +168,15 @@ struct bpf_local_storage_data *
 bpf_local_storage_update(void *owner, struct bpf_map *map,
 			 struct bpf_local_storage *local_storage, void *value,
 			 u64 map_flags);
+
+#ifdef CONFIG_BPF_LSM
+extern const struct bpf_func_proto bpf_inode_storage_get_proto;
+extern const struct bpf_func_proto bpf_inode_storage_delete_proto;
+void bpf_inode_storage_free(struct inode *inode);
+#else
+static inline void bpf_inode_storage_free(struct inode *inode)
+{
+}
+#endif /* CONFIG_BPF_LSM */
 
 #endif /* _BPF_LOCAL_STORAGE_H */
