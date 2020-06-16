@@ -214,7 +214,6 @@ static bool __selem_unlink(struct bpf_local_storage *local_storage,
 	struct bpf_local_storage_map *smap;
 	bool free_local_storage;
 
-	smap = rcu_dereference(SDATA(selem)->smap);
 	free_local_storage = hlist_is_singular_node(&selem->snode,
 						    &local_storage->list);
 
@@ -235,10 +234,14 @@ static bool __selem_unlink(struct bpf_local_storage *local_storage,
 
 
 	hlist_del_init_rcu(&selem->snode);
+
+	rcu_read_lock();
+	smap = rcu_dereference(SDATA(selem)->smap);
 	if (rcu_access_pointer(local_storage->cache[smap->cache_idx]) ==
 	    SDATA(selem))
 		RCU_INIT_POINTER(local_storage->cache[smap->cache_idx], NULL);
 
+	rcu_read_unlock();
 	kfree_rcu(selem, rcu);
 
 	return free_local_storage;
