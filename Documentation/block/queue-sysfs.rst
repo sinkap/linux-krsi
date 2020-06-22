@@ -273,4 +273,13 @@ devices are described in the ZBC (Zoned Block Commands) and ZAC
 do not support zone commands, they will be treated as regular block devices
 and zoned will report "none".
 
+split_alignment (RW)
+----------------------
+This is the alignment in bytes sectors at which the requeust queue is
+allowed to split IO requests. Once this value is set, the requeust
+queue splits IOs such that the individual IOs are aligned to
+split_alignment. The value of 0 indicates that an IO request can be
+split anywhere. This value must be a power of 2 and greater than or
+equal to 512.
+
 Jens Axboe <jens.axboe@oracle.com>, February 2009

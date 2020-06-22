@@ -548,6 +548,33 @@ static ssize_t queue_dax_show(struct request_queue *q, char *page)
 	return queue_var_show(blk_queue_dax(q), page);
 }
 
+static ssize_t queue_split_alignment_show(struct request_queue *q, char *page)
+{
+	return queue_var_show((q->split_alignment << 9), page);
+}
+
+static ssize_t queue_split_alignment_store(struct request_queue *q, const char *page,
+						size_t count)
+{
+	unsigned long split_alignment;
+	int ret;
+
+	ret = queue_var_store(&split_alignment, page, count);
+	if (ret < 0)
+		return ret;
+
+	/* split_alignment can only be a power of 2 */
+	if (split_alignment & (split_alignment - 1))
+		return -EINVAL;
+
+	/* ..and it should be greater than 512 */
+	if (!(split_alignment >> 9))
+		return -EINVAL;
+
+	q->split_alignment = split_alignment >> 9;
+	return count;
+}
+
 #define QUEUE_RO_ENTRY(_prefix, _name)			\
 static struct queue_sysfs_entry _prefix##_entry = {	\
 	.attr	= { .name = _name, .mode = 0444 },	\
@@ -600,6 +627,7 @@ QUEUE_RO_ENTRY(queue_fua, "fua");
 QUEUE_RO_ENTRY(queue_dax, "dax");
 QUEUE_RW_ENTRY(queue_io_timeout, "io_timeout");
 QUEUE_RW_ENTRY(queue_wb_lat, "wbt_lat_usec");
+QUEUE_RW_ENTRY(queue_split_alignment, "split_alignment");
 
 #ifdef CONFIG_BLK_DEV_THROTTLING_LOW
 QUEUE_RW_ENTRY(blk_throtl_sample_time, "throttle_sample_time");
@@ -659,6 +687,7 @@ static struct attribute *queue_attrs[] = {
 #ifdef CONFIG_BLK_DEV_THROTTLING_LOW
 	&blk_throtl_sample_time_entry.attr,
 #endif
+	&queue_split_alignment_entry.attr,
 	NULL,
 };
 
