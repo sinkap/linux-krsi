@@ -17,10 +17,19 @@
 /* For every LSM hook that allows attachment of BPF programs, declare a nop
  * function where a BPF program can be attached.
  */
-#define LSM_HOOK(RET, DEFAULT, NAME, ...)	\
-noinline RET bpf_lsm_##NAME(__VA_ARGS__)	\
-{						\
-	return DEFAULT;				\
+#define LSM_HOOK(SLEEP, ...) LSM_HOOK_##SLEEP(__VA_ARGS__)
+
+#define LSM_HOOK_MIGHT_SLEEP(RET, DEFAULT, NAME, ...)	\
+noinline RET bpf_lsm_##NAME(__VA_ARGS__)		\
+{							\
+	might_fault();					\
+	return DEFAULT;					\
+}
+
+#define LSM_HOOK_CANNOT_SLEEP(RET, DEFAULT, NAME, ...)	\
+noinline RET bpf_lsm_##NAME(__VA_ARGS__)		\
+{							\
+	return DEFAULT;					\
 }
 
 #include <linux/lsm_hook_defs.h>
