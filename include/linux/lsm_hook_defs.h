@@ -33,7 +33,7 @@ LSM_HOOK(MIGHT_SLEEP, int, 0, binder_transfer_binder, struct task_struct *from,
 	 struct task_struct *to)
 LSM_HOOK(MIGHT_SLEEP, int, 0, binder_transfer_file, struct task_struct *from,
 	 struct task_struct *to, struct file *file)
-LSM_HOOK(MIGHT_SLEEP, int, 0, ptrace_access_check, struct task_struct *child,
+LSM_HOOK(CANNOT_SLEEP, int, 0, ptrace_access_check, struct task_struct *child,
 	 unsigned int mode)
 LSM_HOOK(MIGHT_SLEEP, int, 0, ptrace_traceme, struct task_struct *parent)
 LSM_HOOK(MIGHT_SLEEP, int, 0, capget, struct task_struct *target, kernel_cap_t *effective,
@@ -41,14 +41,14 @@ LSM_HOOK(MIGHT_SLEEP, int, 0, capget, struct task_struct *target, kernel_cap_t *
 LSM_HOOK(MIGHT_SLEEP, int, 0, capset, struct cred *new, const struct cred *old,
 	 const kernel_cap_t *effective, const kernel_cap_t *inheritable,
 	 const kernel_cap_t *permitted)
-LSM_HOOK(MIGHT_SLEEP, int, 0, capable, const struct cred *cred, struct user_namespace *ns,
+LSM_HOOK(CANNOT_SLEEP, int, 0, capable, const struct cred *cred, struct user_namespace *ns,
 	 int cap, unsigned int opts)
 LSM_HOOK(MIGHT_SLEEP, int, 0, quotactl, int cmds, int type, int id, struct super_block *sb)
 LSM_HOOK(MIGHT_SLEEP, int, 0, quota_on, struct dentry *dentry)
 LSM_HOOK(MIGHT_SLEEP, int, 0, syslog, int type)
 LSM_HOOK(MIGHT_SLEEP, int, 0, settime, const struct timespec64 *ts,
 	 const struct timezone *tz)
-LSM_HOOK(MIGHT_SLEEP, int, 0, vm_enough_memory, struct mm_struct *mm, long pages)
+LSM_HOOK(CANNOT_SLEEP, int, 0, vm_enough_memory, struct mm_struct *mm, long pages)
 LSM_HOOK(MIGHT_SLEEP, int, 0, bprm_creds_for_exec, struct linux_binprm *bprm)
 LSM_HOOK(MIGHT_SLEEP, int, 0, bprm_creds_from_file, struct linux_binprm *bprm, struct file *file)
 LSM_HOOK(MIGHT_SLEEP, int, 0, bprm_check_security, struct linux_binprm *bprm)
@@ -59,7 +59,7 @@ LSM_HOOK(MIGHT_SLEEP, int, 0, fs_context_dup, struct fs_context *fc,
 LSM_HOOK(MIGHT_SLEEP, int, -ENOPARAM, fs_context_parse_param, struct fs_context *fc,
 	 struct fs_parameter *param)
 LSM_HOOK(MIGHT_SLEEP, int, 0, sb_alloc_security, struct super_block *sb)
-LSM_HOOK(MIGHT_SLEEP, void, LSM_RET_VOID, sb_free_security, struct super_block *sb)
+LSM_HOOK(CANNOT_SLEEP, void, LSM_RET_VOID, sb_free_security, struct super_block *sb)
 LSM_HOOK(MIGHT_SLEEP, void, LSM_RET_VOID, sb_free_mnt_opts, void *mnt_opts)
 LSM_HOOK(MIGHT_SLEEP, int, 0, sb_eat_lsm_opts, char *orig, void **mnt_opts)
 LSM_HOOK(MIGHT_SLEEP, int, 0, sb_remount, struct super_block *sb, void *mnt_opts)
@@ -108,7 +108,7 @@ LSM_HOOK(MIGHT_SLEEP, int, 0, path_chroot, const struct path *path)
 /* Needed for inode based security check */
 LSM_HOOK(MIGHT_SLEEP, int, 0, path_notify, const struct path *path, u64 mask,
 	 unsigned int obj_type)
-LSM_HOOK(MIGHT_SLEEP, int, 0, inode_alloc_security, struct inode *inode)
+LSM_HOOK(CANNOT_SLEEP, int, 0, inode_alloc_security, struct inode *inode)
 LSM_HOOK(MIGHT_SLEEP, void, LSM_RET_VOID, inode_free_security, struct inode *inode)
 LSM_HOOK(MIGHT_SLEEP, int, 0, inode_init_security, struct inode *inode,
 	 struct inode *dir, const struct qstr *qstr, const char **name,
@@ -128,9 +128,9 @@ LSM_HOOK(MIGHT_SLEEP, int, 0, inode_mknod, struct inode *dir, struct dentry *den
 LSM_HOOK(MIGHT_SLEEP, int, 0, inode_rename, struct inode *old_dir, struct dentry *old_dentry,
 	 struct inode *new_dir, struct dentry *new_dentry)
 LSM_HOOK(MIGHT_SLEEP, int, 0, inode_readlink, struct dentry *dentry)
-LSM_HOOK(MIGHT_SLEEP, int, 0, inode_follow_link, struct dentry *dentry, struct inode *inode,
+LSM_HOOK(CANNOT_SLEEP, int, 0, inode_follow_link, struct dentry *dentry, struct inode *inode,
 	 bool rcu)
-LSM_HOOK(MIGHT_SLEEP, int, 0, inode_permission, struct inode *inode, int mask)
+LSM_HOOK(CANNOT_SLEEP, int, 0, inode_permission, struct inode *inode, int mask)
 LSM_HOOK(MIGHT_SLEEP, int, 0, inode_setattr, struct dentry *dentry, struct iattr *attr)
 LSM_HOOK(MIGHT_SLEEP, int, 0, inode_getattr, const struct path *path)
 LSM_HOOK(MIGHT_SLEEP, int, 0, inode_setxattr, struct dentry *dentry, const char *name,
@@ -155,28 +155,28 @@ LSM_HOOK(MIGHT_SLEEP, int, -EOPNOTSUPP, inode_copy_up_xattr, const char *name)
 LSM_HOOK(MIGHT_SLEEP, int, 0, kernfs_init_security, struct kernfs_node *kn_dir,
 	 struct kernfs_node *kn)
 LSM_HOOK(MIGHT_SLEEP, int, 0, file_permission, struct file *file, int mask)
-LSM_HOOK(MIGHT_SLEEP, int, 0, file_alloc_security, struct file *file)
+LSM_HOOK(CANNOT_SLEEP, int, 0, file_alloc_security, struct file *file)
 LSM_HOOK(MIGHT_SLEEP, void, LSM_RET_VOID, file_free_security, struct file *file)
 LSM_HOOK(MIGHT_SLEEP, int, 0, file_ioctl, struct file *file, unsigned int cmd,
 	 unsigned long arg)
-LSM_HOOK(MIGHT_SLEEP, int, 0, mmap_addr, unsigned long addr)
+LSM_HOOK(CANNOT_SLEEP, int, 0, mmap_addr, unsigned long addr)
 LSM_HOOK(MIGHT_SLEEP, int, 0, mmap_file, struct file *file, unsigned long reqprot,
 	 unsigned long prot, unsigned long flags)
-LSM_HOOK(MIGHT_SLEEP, int, 0, file_mprotect, struct vm_area_struct *vma,
+LSM_HOOK(CANNOT_SLEEP, int, 0, file_mprotect, struct vm_area_struct *vma,
 	 unsigned long reqprot, unsigned long prot)
 LSM_HOOK(MIGHT_SLEEP, int, 0, file_lock, struct file *file, unsigned int cmd)
 LSM_HOOK(MIGHT_SLEEP, int, 0, file_fcntl, struct file *file, unsigned int cmd,
 	 unsigned long arg)
 LSM_HOOK(MIGHT_SLEEP, void, LSM_RET_VOID, file_set_fowner, struct file *file)
-LSM_HOOK(MIGHT_SLEEP, int, 0, file_send_sigiotask, struct task_struct *tsk,
+LSM_HOOK(CANNOT_SLEEP, int, 0, file_send_sigiotask, struct task_struct *tsk,
 	 struct fown_struct *fown, int sig)
 LSM_HOOK(MIGHT_SLEEP, int, 0, file_receive, struct file *file)
 LSM_HOOK(MIGHT_SLEEP, int, 0, file_open, struct file *file)
 LSM_HOOK(MIGHT_SLEEP, int, 0, task_alloc, struct task_struct *task,
 	 unsigned long clone_flags)
-LSM_HOOK(MIGHT_SLEEP, void, LSM_RET_VOID, task_free, struct task_struct *task)
+LSM_HOOK(CANNOT_SLEEP, void, LSM_RET_VOID, task_free, struct task_struct *task)
 LSM_HOOK(MIGHT_SLEEP, int, 0, cred_alloc_blank, struct cred *cred, gfp_t gfp)
-LSM_HOOK(MIGHT_SLEEP, void, LSM_RET_VOID, cred_free, struct cred *cred)
+LSM_HOOK(CANNOT_SLEEP, void, LSM_RET_VOID, cred_free, struct cred *cred)
 LSM_HOOK(MIGHT_SLEEP, int, 0, cred_prepare, struct cred *new, const struct cred *old,
 	 gfp_t gfp)
 LSM_HOOK(MIGHT_SLEEP, void, LSM_RET_VOID, cred_transfer, struct cred *new,
@@ -196,21 +196,21 @@ LSM_HOOK(MIGHT_SLEEP, int, 0, task_fix_setuid, struct cred *new, const struct cr
 	 int flags)
 LSM_HOOK(MIGHT_SLEEP, int, 0, task_fix_setgid, struct cred *new, const struct cred * old,
 	 int flags)
-LSM_HOOK(MIGHT_SLEEP, int, 0, task_setpgid, struct task_struct *p, pid_t pgid)
+LSM_HOOK(CANNOT_SLEEP, int, 0, task_setpgid, struct task_struct *p, pid_t pgid)
 LSM_HOOK(MIGHT_SLEEP, int, 0, task_getpgid, struct task_struct *p)
 LSM_HOOK(MIGHT_SLEEP, int, 0, task_getsid, struct task_struct *p)
 LSM_HOOK(MIGHT_SLEEP, void, LSM_RET_VOID, task_getsecid, struct task_struct *p, u32 *secid)
-LSM_HOOK(MIGHT_SLEEP, int, 0, task_setnice, struct task_struct *p, int nice)
-LSM_HOOK(MIGHT_SLEEP, int, 0, task_setioprio, struct task_struct *p, int ioprio)
-LSM_HOOK(MIGHT_SLEEP, int, 0, task_getioprio, struct task_struct *p)
+LSM_HOOK(CANNOT_SLEEP, int, 0, task_setnice, struct task_struct *p, int nice)
+LSM_HOOK(CANNOT_SLEEP, int, 0, task_setioprio, struct task_struct *p, int ioprio)
+LSM_HOOK(CANNOT_SLEEP, int, 0, task_getioprio, struct task_struct *p)
 LSM_HOOK(MIGHT_SLEEP, int, 0, task_prlimit, const struct cred *cred,
 	 const struct cred *tcred, unsigned int flags)
-LSM_HOOK(MIGHT_SLEEP, int, 0, task_setrlimit, struct task_struct *p, unsigned int resource,
+LSM_HOOK(CANNOT_SLEEP, int, 0, task_setrlimit, struct task_struct *p, unsigned int resource,
 	 struct rlimit *new_rlim)
 LSM_HOOK(MIGHT_SLEEP, int, 0, task_setscheduler, struct task_struct *p)
-LSM_HOOK(MIGHT_SLEEP, int, 0, task_getscheduler, struct task_struct *p)
+LSM_HOOK(CANNOT_SLEEP, int, 0, task_getscheduler, struct task_struct *p)
 LSM_HOOK(MIGHT_SLEEP, int, 0, task_movememory, struct task_struct *p)
-LSM_HOOK(MIGHT_SLEEP, int, 0, task_kill, struct task_struct *p, struct kernel_siginfo *info,
+LSM_HOOK(CANNOT_SLEEP, int, 0, task_kill, struct task_struct *p, struct kernel_siginfo *info,
 	 int sig, const struct cred *cred)
 LSM_HOOK(MIGHT_SLEEP, int, -ENOSYS, task_prctl, int option, unsigned long arg2,
 	 unsigned long arg3, unsigned long arg4, unsigned long arg5)
@@ -243,7 +243,7 @@ LSM_HOOK(MIGHT_SLEEP, int, 0, sem_semctl, struct kern_ipc_perm *perm, int cmd)
 LSM_HOOK(MIGHT_SLEEP, int, 0, sem_semop, struct kern_ipc_perm *perm, struct sembuf *sops,
 	 unsigned nsops, int alter)
 LSM_HOOK(MIGHT_SLEEP, int, 0, netlink_send, struct sock *sk, struct sk_buff *skb)
-LSM_HOOK(MIGHT_SLEEP, void, LSM_RET_VOID, d_instantiate, struct dentry *dentry,
+LSM_HOOK(CANNOT_SLEEP, void, LSM_RET_VOID, d_instantiate, struct dentry *dentry,
 	 struct inode *inode)
 LSM_HOOK(MIGHT_SLEEP, int, -EINVAL, getprocattr, struct task_struct *p, char *name,
 	 char **value)
@@ -269,9 +269,9 @@ LSM_HOOK(MIGHT_SLEEP, int, 0, watch_key, struct key *key)
 #endif /* CONFIG_SECURITY && CONFIG_KEY_NOTIFICATIONS */
 
 #ifdef CONFIG_SECURITY_NETWORK
-LSM_HOOK(MIGHT_SLEEP, int, 0, unix_stream_connect, struct sock *sock, struct sock *other,
+LSM_HOOK(CANNOT_SLEEP, int, 0, unix_stream_connect, struct sock *sock, struct sock *other,
 	 struct sock *newsk)
-LSM_HOOK(MIGHT_SLEEP, int, 0, unix_may_send, struct socket *sock, struct socket *other)
+LSM_HOOK(CANNOT_SLEEP, int, 0, unix_may_send, struct socket *sock, struct socket *other)
 LSM_HOOK(MIGHT_SLEEP, int, 0, socket_create, int family, int type, int protocol, int kern)
 LSM_HOOK(MIGHT_SLEEP, int, 0, socket_post_create, struct socket *sock, int family, int type,
 	 int protocol, int kern)
@@ -291,27 +291,27 @@ LSM_HOOK(MIGHT_SLEEP, int, 0, socket_getpeername, struct socket *sock)
 LSM_HOOK(MIGHT_SLEEP, int, 0, socket_getsockopt, struct socket *sock, int level, int optname)
 LSM_HOOK(MIGHT_SLEEP, int, 0, socket_setsockopt, struct socket *sock, int level, int optname)
 LSM_HOOK(MIGHT_SLEEP, int, 0, socket_shutdown, struct socket *sock, int how)
-LSM_HOOK(MIGHT_SLEEP, int, 0, socket_sock_rcv_skb, struct sock *sk, struct sk_buff *skb)
+LSM_HOOK(CANNOT_SLEEP, int, 0, socket_sock_rcv_skb, struct sock *sk, struct sk_buff *skb)
 LSM_HOOK(MIGHT_SLEEP, int, 0, socket_getpeersec_stream, struct socket *sock,
 	 char __user *optval, int __user *optlen, unsigned len)
 LSM_HOOK(MIGHT_SLEEP, int, 0, socket_getpeersec_dgram, struct socket *sock,
 	 struct sk_buff *skb, u32 *secid)
-LSM_HOOK(MIGHT_SLEEP, int, 0, sk_alloc_security, struct sock *sk, int family, gfp_t priority)
-LSM_HOOK(MIGHT_SLEEP, void, LSM_RET_VOID, sk_free_security, struct sock *sk)
-LSM_HOOK(MIGHT_SLEEP, void, LSM_RET_VOID, sk_clone_security, const struct sock *sk,
+LSM_HOOK(CANNOT_SLEEP, int, 0, sk_alloc_security, struct sock *sk, int family, gfp_t priority)
+LSM_HOOK(CANNOT_SLEEP, void, LSM_RET_VOID, sk_free_security, struct sock *sk)
+LSM_HOOK(CANNOT_SLEEP, void, LSM_RET_VOID, sk_clone_security, const struct sock *sk,
 	 struct sock *newsk)
-LSM_HOOK(MIGHT_SLEEP, void, LSM_RET_VOID, sk_getsecid, struct sock *sk, u32 *secid)
-LSM_HOOK(MIGHT_SLEEP, void, LSM_RET_VOID, sock_graft, struct sock *sk, struct socket *parent)
-LSM_HOOK(MIGHT_SLEEP, int, 0, inet_conn_request, struct sock *sk, struct sk_buff *skb,
+LSM_HOOK(CANNOT_SLEEP, void, LSM_RET_VOID, sk_getsecid, struct sock *sk, u32 *secid)
+LSM_HOOK(CANNOT_SLEEP, void, LSM_RET_VOID, sock_graft, struct sock *sk, struct socket *parent)
+LSM_HOOK(CANNOT_SLEEP, int, 0, inet_conn_request, struct sock *sk, struct sk_buff *skb,
 	 struct request_sock *req)
-LSM_HOOK(MIGHT_SLEEP, void, LSM_RET_VOID, inet_csk_clone, struct sock *newsk,
+LSM_HOOK(CANNOT_SLEEP, void, LSM_RET_VOID, inet_csk_clone, struct sock *newsk,
 	 const struct request_sock *req)
 LSM_HOOK(MIGHT_SLEEP, void, LSM_RET_VOID, inet_conn_established, struct sock *sk,
 	 struct sk_buff *skb)
 LSM_HOOK(MIGHT_SLEEP, int, 0, secmark_relabel_packet, u32 secid)
 LSM_HOOK(MIGHT_SLEEP, void, LSM_RET_VOID, secmark_refcount_inc, void)
 LSM_HOOK(MIGHT_SLEEP, void, LSM_RET_VOID, secmark_refcount_dec, void)
-LSM_HOOK(MIGHT_SLEEP, void, LSM_RET_VOID, req_classify_flow, const struct request_sock *req,
+LSM_HOOK(CANNOT_SLEEP, void, LSM_RET_VOID, req_classify_flow, const struct request_sock *req,
 	 struct flowi *fl)
 LSM_HOOK(MIGHT_SLEEP, int, 0, tun_dev_alloc_security, void **security)
 LSM_HOOK(MIGHT_SLEEP, void, LSM_RET_VOID, tun_dev_free_security, void *security)
@@ -362,7 +362,7 @@ LSM_HOOK(MIGHT_SLEEP, int, 0, xfrm_decode_session, struct sk_buff *skb, u32 *sec
 LSM_HOOK(MIGHT_SLEEP, int, 0, key_alloc, struct key *key, const struct cred *cred,
 	 unsigned long flags)
 LSM_HOOK(MIGHT_SLEEP, void, LSM_RET_VOID, key_free, struct key *key)
-LSM_HOOK(MIGHT_SLEEP, int, 0, key_permission, key_ref_t key_ref, const struct cred *cred,
+LSM_HOOK(CANNOT_SLEEP, int, 0, key_permission, key_ref_t key_ref, const struct cred *cred,
 	 enum key_need_perm need_perm)
 LSM_HOOK(MIGHT_SLEEP, int, 0, key_getsecurity, struct key *key, char **_buffer)
 #endif /* CONFIG_KEYS */
@@ -382,15 +382,15 @@ LSM_HOOK(MIGHT_SLEEP, int, 0, bpf_prog, struct bpf_prog *prog)
 LSM_HOOK(MIGHT_SLEEP, int, 0, bpf_map_alloc_security, struct bpf_map *map)
 LSM_HOOK(MIGHT_SLEEP, void, LSM_RET_VOID, bpf_map_free_security, struct bpf_map *map)
 LSM_HOOK(MIGHT_SLEEP, int, 0, bpf_prog_alloc_security, struct bpf_prog_aux *aux)
-LSM_HOOK(MIGHT_SLEEP, void, LSM_RET_VOID, bpf_prog_free_security, struct bpf_prog_aux *aux)
+LSM_HOOK(CANNOT_SLEEP, void, LSM_RET_VOID, bpf_prog_free_security, struct bpf_prog_aux *aux)
 #endif /* CONFIG_BPF_SYSCALL */
 
-LSM_HOOK(MIGHT_SLEEP, int, 0, locked_down, enum lockdown_reason what)
+LSM_HOOK(CANNOT_SLEEP, int, 0, locked_down, enum lockdown_reason what)
 
 #ifdef CONFIG_PERF_EVENTS
 LSM_HOOK(MIGHT_SLEEP, int, 0, perf_event_open, struct perf_event_attr *attr, int type)
 LSM_HOOK(MIGHT_SLEEP, int, 0, perf_event_alloc, struct perf_event *event)
 LSM_HOOK(MIGHT_SLEEP, void, LSM_RET_VOID, perf_event_free, struct perf_event *event)
-LSM_HOOK(MIGHT_SLEEP, int, 0, perf_event_read, struct perf_event *event)
+LSM_HOOK(CANNOT_SLEEP, int, 0, perf_event_read, struct perf_event *event)
 LSM_HOOK(MIGHT_SLEEP, int, 0, perf_event_write, struct perf_event *event)
 #endif /* CONFIG_PERF_EVENTS */
