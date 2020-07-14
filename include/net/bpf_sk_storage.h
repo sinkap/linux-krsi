@@ -3,8 +3,15 @@
 #ifndef _BPF_SK_STORAGE_H
 #define _BPF_SK_STORAGE_H
 
+#include <linux/rculist.h>
+#include <linux/list.h>
+#include <linux/hash.h>
 #include <linux/types.h>
 #include <linux/spinlock.h>
+#include <linux/bpf.h>
+#include <net/sock.h>
+#include <uapi/linux/sock_diag.h>
+#include <uapi/linux/btf.h>
 
 struct sock;
 
@@ -40,6 +47,54 @@ static void cache_idx_free_##type(u16 idx)				\
 				     cache_idx_usage_counts_##type,	\
 				     idx);				\
 }
+
+/* Helper functions for bpf_local_storage */
+int bpf_local_storage_map_alloc_check(union bpf_attr *attr);
+
+struct bpf_local_storage_map *bpf_local_storage_map_alloc(union bpf_attr *attr);
+
+struct bpf_local_storage_data *
+bpf_local_storage_lookup(struct bpf_local_storage *local_storage,
+			 struct bpf_local_storage_map *smap,
+			 bool cacheit_lockit);
+
+void bpf_local_storage_map_free(struct bpf_local_storage_map *smap);
+
+int bpf_local_storage_map_check_btf(const struct bpf_map *map,
+				    const struct btf *btf,
+				    const struct btf_type *key_type,
+				    const struct btf_type *value_type);
+
+void bpf_selem_link_storage(struct bpf_local_storage *local_storage,
+			    struct bpf_local_storage_elem *selem);
+
+bool bpf_selem_unlink_storage(struct bpf_local_storage *local_storage,
+			      struct bpf_local_storage_elem *selem,
+			      bool uncharge_omem);
+
+void bpf_selem_unlink(struct bpf_local_storage_elem *selem);
+
+void bpf_selem_link_map(struct bpf_local_storage_map *smap,
+			struct bpf_local_storage_elem *selem);
+
+void bpf_selem_unlink_map(struct bpf_local_storage_elem *selem);
+
+struct bpf_local_storage_elem *
+bpf_selem_alloc(struct bpf_local_storage_map *smap, void *value);
+
+struct bpf_local_storage *
+bpf_local_storage_alloc(struct bpf_local_storage_map *smap);
+
+int bpf_local_storage_publish(struct bpf_local_storage_elem *first_selem,
+			      struct bpf_local_storage **addr,
+			      struct bpf_local_storage *curr);
+
+int bpf_local_storage_check_update_flags(struct bpf_map *map, u64 map_flags);
+
+struct bpf_local_storage_data *
+bpf_local_storage_update(void *owner, struct bpf_map *map,
+			 struct bpf_local_storage *local_storage, void *value,
+			 u64 map_flags);
 
 #ifdef CONFIG_BPF_SYSCALL
 int bpf_sk_storage_clone(const struct sock *sk, struct sock *newsk);
