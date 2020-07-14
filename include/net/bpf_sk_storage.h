@@ -3,6 +3,9 @@
 #ifndef _BPF_SK_STORAGE_H
 #define _BPF_SK_STORAGE_H
 
+#include <linux/types.h>
+#include <linux/spinlock.h>
+
 struct sock;
 
 void bpf_sk_storage_free(struct sock *sk);
@@ -14,6 +17,29 @@ struct bpf_sk_storage_diag;
 struct sk_buff;
 struct nlattr;
 struct sock;
+
+#define BPF_LOCAL_STORAGE_CACHE_SIZE	16
+
+u16 bpf_ls_cache_idx_get(spinlock_t *cache_idx_lock,
+			   u64 *cache_idx_usage_count);
+
+void bpf_ls_cache_idx_free(spinlock_t *cache_idx_lock,
+			   u64 *cache_idx_usage_counts, u16 idx);
+
+#define DEFINE_BPF_STORAGE_CACHE(type)					\
+static DEFINE_SPINLOCK(cache_idx_lock_##type);				\
+static u64 cache_idx_usage_counts_##type[BPF_LOCAL_STORAGE_CACHE_SIZE];	\
+static u16 cache_idx_get_##type(void)					\
+{									\
+	return bpf_ls_cache_idx_get(&cache_idx_lock_##type,		\
+				    cache_idx_usage_counts_##type);	\
+}									\
+static void cache_idx_free_##type(u16 idx)				\
+{									\
+	return bpf_ls_cache_idx_free(&cache_idx_lock_##type,		\
+				     cache_idx_usage_counts_##type,	\
+				     idx);				\
+}
 
 #ifdef CONFIG_BPF_SYSCALL
 int bpf_sk_storage_clone(const struct sock *sk, struct sock *newsk);
