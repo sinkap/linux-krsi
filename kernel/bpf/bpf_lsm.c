@@ -11,6 +11,7 @@
 #include <linux/bpf_lsm.h>
 #include <linux/kallsyms.h>
 #include <linux/bpf_verifier.h>
+#include <linux/bpf_lsm_stats.h>
 #include <net/bpf_sk_storage.h>
 #include <linux/bpf_local_storage.h>
 
@@ -23,6 +24,7 @@
 noinline RET bpf_lsm_##NAME(__VA_ARGS__)		\
 {							\
 	might_fault();					\
+	atomic_inc(&bpf_lsm_hook_stats_list[NAME##_type].calls); \
 	return DEFAULT;					\
 }
 
