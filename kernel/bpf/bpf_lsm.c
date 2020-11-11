@@ -13,6 +13,7 @@
 #include <linux/bpf_verifier.h>
 #include <net/bpf_sk_storage.h>
 #include <linux/bpf_local_storage.h>
+#include <linux/btf_ids.h>
 
 /* For every LSM hook that allows attachment of BPF programs, declare a nop
  * function where a BPF program can be attached.
@@ -70,6 +71,125 @@ bpf_lsm_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
 	default:
 		return tracing_prog_func_proto(func_id, prog);
 	}
+}
+
+/* The set of hooks which are called without pagefaults disabled and are allowed
+ * to "sleep and thus can be used for sleeable BPF programs.
+ *
+ * There are some hooks which have been observed to be called from a
+ * non-sleepable context and should not be added to this set:
+ *
+ *  bpf_lsm_bpf_prog_free_security
+ *  bpf_lsm_capable
+ *  bpf_lsm_cred_free
+ *  bpf_lsm_d_instantiate
+ *  bpf_lsm_file_alloc_security
+ *  bpf_lsm_file_mprotect
+ *  bpf_lsm_file_send_sigiotask
+ *  bpf_lsm_inet_conn_request
+ *  bpf_lsm_inet_csk_clone
+ *  bpf_lsm_inode_alloc_security
+ *  bpf_lsm_inode_follow_link
+ *  bpf_lsm_inode_permission
+ *  bpf_lsm_key_permission
+ *  bpf_lsm_locked_down
+ *  bpf_lsm_mmap_addr
+ *  bpf_lsm_perf_event_read
+ *  bpf_lsm_ptrace_access_check
+ *  bpf_lsm_req_classify_flow
+ *  bpf_lsm_sb_free_security
+ *  bpf_lsm_sk_alloc_security
+ *  bpf_lsm_sk_clone_security
+ *  bpf_lsm_sk_free_security
+ *  bpf_lsm_sk_getsecid
+ *  bpf_lsm_socket_sock_rcv_skb
+ *  bpf_lsm_sock_graft
+ *  bpf_lsm_task_free
+ *  bpf_lsm_task_getioprio
+ *  bpf_lsm_task_getscheduler
+ *  bpf_lsm_task_kill
+ *  bpf_lsm_task_setioprio
+ *  bpf_lsm_task_setnice
+ *  bpf_lsm_task_setpgid
+ *  bpf_lsm_task_setrlimit
+ *  bpf_lsm_unix_may_send
+ *  bpf_lsm_unix_stream_connect
+ *  bpf_lsm_vm_enough_memory
+ */
+BTF_SET_START(sleepable_lsm_hooks)BTF_ID(func, bpf_lsm_bpf)
+BTF_ID(func, bpf_lsm_bpf_map)
+BTF_ID(func, bpf_lsm_bpf_map_alloc_security)
+BTF_ID(func, bpf_lsm_bpf_map_free_security)
+BTF_ID(func, bpf_lsm_bpf_prog)
+BTF_ID(func, bpf_lsm_bprm_check_security)
+BTF_ID(func, bpf_lsm_bprm_committed_creds)
+BTF_ID(func, bpf_lsm_bprm_committing_creds)
+BTF_ID(func, bpf_lsm_bprm_creds_for_exec)
+BTF_ID(func, bpf_lsm_bprm_creds_from_file)
+BTF_ID(func, bpf_lsm_capget)
+BTF_ID(func, bpf_lsm_capset)
+BTF_ID(func, bpf_lsm_cred_prepare)
+BTF_ID(func, bpf_lsm_file_ioctl)
+BTF_ID(func, bpf_lsm_file_lock)
+BTF_ID(func, bpf_lsm_file_open)
+BTF_ID(func, bpf_lsm_file_receive)
+BTF_ID(func, bpf_lsm_inet_conn_established)
+BTF_ID(func, bpf_lsm_inode_create)
+BTF_ID(func, bpf_lsm_inode_free_security)
+BTF_ID(func, bpf_lsm_inode_getattr)
+BTF_ID(func, bpf_lsm_inode_getxattr)
+BTF_ID(func, bpf_lsm_inode_mknod)
+BTF_ID(func, bpf_lsm_inode_need_killpriv)
+BTF_ID(func, bpf_lsm_inode_post_setxattr)
+BTF_ID(func, bpf_lsm_inode_readlink)
+BTF_ID(func, bpf_lsm_inode_rename)
+BTF_ID(func, bpf_lsm_inode_rmdir)
+BTF_ID(func, bpf_lsm_inode_setattr)
+BTF_ID(func, bpf_lsm_inode_setxattr)
+BTF_ID(func, bpf_lsm_inode_symlink)
+BTF_ID(func, bpf_lsm_inode_unlink)
+BTF_ID(func, bpf_lsm_kernel_module_request)
+BTF_ID(func, bpf_lsm_kernfs_init_security)
+BTF_ID(func, bpf_lsm_key_free)
+BTF_ID(func, bpf_lsm_mmap_file)
+BTF_ID(func, bpf_lsm_netlink_send)
+BTF_ID(func, bpf_lsm_path_notify)
+BTF_ID(func, bpf_lsm_release_secctx)
+BTF_ID(func, bpf_lsm_sb_alloc_security)
+BTF_ID(func, bpf_lsm_sb_eat_lsm_opts)
+BTF_ID(func, bpf_lsm_sb_kern_mount)
+BTF_ID(func, bpf_lsm_sb_mount)
+BTF_ID(func, bpf_lsm_sb_remount)
+BTF_ID(func, bpf_lsm_sb_set_mnt_opts)
+BTF_ID(func, bpf_lsm_sb_show_options)
+BTF_ID(func, bpf_lsm_sb_statfs)
+BTF_ID(func, bpf_lsm_sb_umount)
+BTF_ID(func, bpf_lsm_settime)
+BTF_ID(func, bpf_lsm_socket_accept)
+BTF_ID(func, bpf_lsm_socket_bind)
+BTF_ID(func, bpf_lsm_socket_connect)
+BTF_ID(func, bpf_lsm_socket_create)
+BTF_ID(func, bpf_lsm_socket_getpeername)
+BTF_ID(func, bpf_lsm_socket_getpeersec_dgram)
+BTF_ID(func, bpf_lsm_socket_getsockname)
+BTF_ID(func, bpf_lsm_socket_getsockopt)
+BTF_ID(func, bpf_lsm_socket_listen)
+BTF_ID(func, bpf_lsm_socket_post_create)
+BTF_ID(func, bpf_lsm_socket_recvmsg)
+BTF_ID(func, bpf_lsm_socket_sendmsg)
+BTF_ID(func, bpf_lsm_socket_shutdown)
+BTF_ID(func, bpf_lsm_socket_socketpair)
+BTF_ID(func, bpf_lsm_syslog)
+BTF_ID(func, bpf_lsm_task_alloc)
+BTF_ID(func, bpf_lsm_task_getsecid)
+BTF_ID(func, bpf_lsm_task_prctl)
+BTF_ID(func, bpf_lsm_task_setscheduler)
+BTF_ID(func, bpf_lsm_task_to_inode)
+BTF_SET_END(sleepable_lsm_hooks)
+
+bool bpf_lsm_is_sleepable_hook(u32 btf_id)
+{
+	return btf_id_set_contains(&sleepable_lsm_hooks, btf_id);
 }
 
 const struct bpf_prog_ops lsm_prog_ops = {
