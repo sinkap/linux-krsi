@@ -430,6 +430,7 @@ class PrinterHelpers(Printer):
             'struct tcp_request_sock',
             'struct udp6_sock',
             'struct task_struct',
+            'struct inode',
 
             'struct __sk_buff',
             'struct sk_msg_md',
