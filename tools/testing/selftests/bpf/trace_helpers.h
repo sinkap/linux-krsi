@@ -15,6 +15,8 @@ long ksym_get_addr(const char *name);
 
 /* open kallsyms and find addresses on the fly, faster than load + search. */
 int kallsyms_find(const char *sym, unsigned long long *addr);
+int copy_file_temp(const char *src, char *dest_template);
+int copy_file(const char *src, const char *dest);
 
 void read_trace_pipe(void);
 

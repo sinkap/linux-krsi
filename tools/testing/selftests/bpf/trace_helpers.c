@@ -8,7 +8,9 @@
 #include <poll.h>
 #include <unistd.h>
 #include <linux/perf_event.h>
+#include <linux/unistd.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
 #include "trace_helpers.h"
 
 #define DEBUGFS "/sys/kernel/debug/tracing/"
@@ -16,6 +18,14 @@
 #define MAX_SYMS 300000
 static struct ksym syms[MAX_SYMS];
 static int sym_cnt;
+
+static inline ssize_t copy_file_range(int fd_in, loff_t *off_in, int fd_out,
+				      loff_t *off_out, size_t len,
+				      unsigned int flags)
+{
+	return syscall(__NR_copy_file_range, fd_in, off_in, fd_out, off_out,
+		       len, flags);
+}
 
 static int ksym_cmp(const void *p1, const void *p2)
 {
@@ -135,4 +145,54 @@ void read_trace_pipe(void)
 			puts(buf);
 		}
 	}
+}
+
+static int do_copy_file(const char *src, int dest_fd)
+{
+	int fd_in, ret = 0;
+	struct stat stat;
+
+	fd_in = open(src, O_RDONLY);
+	if (fd_in < 0)
+		return -errno;
+
+	ret = fstat(fd_in, &stat);
+	if (ret == -1) {
+		ret = -errno;
+		goto out;
+	}
+
+	ret = copy_file_range(fd_in, NULL, dest_fd, NULL, stat.st_size, 0);
+	if (ret == -1)
+		ret = -errno;
+
+out:
+	close(fd_in);
+	return ret;
+}
+
+int copy_file(const char *src, const char *dest)
+{
+	int dest_fd, ret;
+
+	dest_fd = open(dest, O_WRONLY);
+	if (dest_fd < 0)
+		return -errno;
+
+	ret = do_copy_file(src, dest_fd);
+	close(dest_fd);
+	return ret;
+}
+
+int copy_file_temp(const char *src, char *dest_template)
+{
+	int dest_fd, ret;
+
+	dest_fd = mkstemp(dest_template);
+	if (dest_fd < 0)
+		return -errno;
+
+	ret = do_copy_file(src, dest_fd);
+	close(dest_fd);
+	return ret;
 }

@@ -5,12 +5,13 @@
  */
 
 #include <asm-generic/errno-base.h>
-#include <sys/stat.h>
 #include <test_progs.h>
+#include <sys/stat.h>
 #include <linux/limits.h>
 
 #include "local_storage.skel.h"
 #include "network_helpers.h"
+#include "trace_helpers.h"
 
 #ifndef __NR_pidfd_open
 #define __NR_pidfd_open 434
@@ -21,13 +22,6 @@ static inline int sys_pidfd_open(pid_t pid, unsigned int flags)
 	return syscall(__NR_pidfd_open, pid, flags);
 }
 
-static inline ssize_t copy_file_range(int fd_in, loff_t *off_in, int fd_out,
-				      loff_t *off_out, size_t len,
-				      unsigned int flags)
-{
-	return syscall(__NR_copy_file_range, fd_in, off_in, fd_out, off_out,
-		       len, flags);
-}
 
 static unsigned int duration;
 
@@ -45,40 +39,18 @@ struct storage {
 /* Copies an rm binary to a temp file. dest is a mkstemp template */
 static int copy_rm(char *dest)
 {
-	int fd_in, fd_out = -1, ret = 0;
-	struct stat stat;
+	int err;
 
-	fd_in = open("/bin/rm", O_RDONLY);
-	if (fd_in < 0)
-		return -errno;
-
-	fd_out = mkstemp(dest);
-	if (fd_out < 0) {
-		ret = -errno;
-		goto out;
-	}
-
-	ret = fstat(fd_in, &stat);
-	if (ret == -1) {
-		ret = -errno;
-		goto out;
-	}
-
-	ret = copy_file_range(fd_in, NULL, fd_out, NULL, stat.st_size, 0);
-	if (ret == -1) {
-		ret = -errno;
-		goto out;
-	}
+	err = copy_file_temp("/bin/rm", dest);
+	if (err < 0)
+		return err;
 
 	/* Set executable permission on the copied file */
-	ret = chmod(dest, 0100);
-	if (ret == -1)
-		ret = -errno;
+	err = chmod(dest, 0100);
+	if (err == -1)
+		return errno;
 
-out:
-	close(fd_in);
-	close(fd_out);
-	return ret;
+	return 0;
 }
 
 /* Fork and exec the provided rm binary and return the exit code of the
