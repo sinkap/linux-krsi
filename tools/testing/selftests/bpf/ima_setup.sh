@@ -81,8 +81,14 @@ main()
 
 	local action="$1"
 	local tmp_dir="$2"
+	local verbose="${SELFTESTS_VERBOSE:=0}"
 
 	[[ ! -d "${tmp_dir}" ]] && echo "Directory ${tmp_dir} doesn't exist" && exit 1
+
+	if [[ "${verbose}" -eq 0 ]]; then
+		exec 1> /dev/null
+		exec 2>&1
+	fi
 
 	if [[ "${action}" == "setup" ]]; then
 		setup "${tmp_dir}"
