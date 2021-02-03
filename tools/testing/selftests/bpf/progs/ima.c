@@ -9,20 +9,42 @@
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
 
-long ima_hash_ret = -1;
-u64 ima_hash = 0;
 u32 monitored_pid = 0;
+
+struct buf_sample {
+	u64 ima_hash;
+};
+
+struct {
+	__uint(type, BPF_MAP_TYPE_RINGBUF);
+	__uint(max_entries, 1 << 12);
+} ringbuf SEC(".maps");
 
 char _license[] SEC("license") = "GPL";
 
 SEC("lsm.s/bprm_committed_creds")
-int BPF_PROG(ima, struct linux_binprm *bprm)
+void BPF_PROG(ima, struct linux_binprm *bprm)
 {
-	u32 pid = bpf_get_current_pid_tgid() >> 32;
 
-	if (pid == monitored_pid)
-		ima_hash_ret = bpf_ima_inode_hash(bprm->file->f_inode,
-						  &ima_hash, sizeof(ima_hash));
+	struct buf_sample *sample;
+	u64 ima_hash = 0;
+	int ret;
+	u32 pid;
 
-	return 0;
+	pid = bpf_get_current_pid_tgid() >> 32;
+	if (pid == monitored_pid) {
+		ret = bpf_ima_inode_hash(bprm->file->f_inode, &ima_hash,
+					 sizeof(ima_hash));
+		if (ret < 0 || ima_hash == 0)
+			return;
+
+		sample = bpf_ringbuf_reserve(&ringbuf, sizeof(*sample), 0);
+		if (!sample)
+			return;
+
+		sample->ima_hash = ima_hash;
+		bpf_ringbuf_submit(sample, BPF_RB_FORCE_WAKEUP);
+	}
+
+	return;
 }

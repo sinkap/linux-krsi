@@ -9,8 +9,12 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <test_progs.h>
+#include <linux/ring_buffer.h>
 
 #include "ima.skel.h"
+struct buf_sample {
+	u64 ima_hash;
+};
 
 static int run_measured_process(const char *measured_dir, u32 *monitored_pid)
 {
@@ -31,6 +35,17 @@ static int run_measured_process(const char *measured_dir, u32 *monitored_pid)
 	return -EINVAL;
 }
 
+static struct ring_buffer *ringbuf;
+static u64 ima_hash_from_bpf;
+
+static int process_sample(void *ctx, void *data, size_t len)
+{
+	struct buf_sample *s = data;
+
+	ima_hash_from_bpf = s->ima_hash;
+	return 0;
+}
+
 void test_test_ima(void)
 {
 	char measured_dir_template[] = "/tmp/ima_measuredXXXXXX";
@@ -42,6 +57,11 @@ void test_test_ima(void)
 
 	skel = ima__open_and_load();
 	if (CHECK(!skel, "skel_load", "skeleton failed\n"))
+		goto close_prog;
+
+	ringbuf = ring_buffer__new(bpf_map__fd(skel->maps.ringbuf),
+				   process_sample, NULL, NULL);
+	if (CHECK(!ringbuf, "ringbuf_create", "failed to create ringbuf\n"))
 		goto close_prog;
 
 	err = ima__attach(skel);
@@ -60,11 +80,11 @@ void test_test_ima(void)
 	if (CHECK(err, "run_measured_process", "err = %d\n", err))
 		goto close_clean;
 
-	CHECK(skel->data->ima_hash_ret < 0, "ima_hash_ret",
-	      "ima_hash_ret = %ld\n", skel->data->ima_hash_ret);
-
-	CHECK(skel->bss->ima_hash == 0, "ima_hash",
-	      "ima_hash = %lu\n", skel->bss->ima_hash);
+	err = ring_buffer__poll(ringbuf, 1000);
+	if (CHECK(err != 1, "extra_samples", "poll result: %d\n", err))
+		goto close_clean;
+	CHECK(ima_hash_from_bpf == 0, "ima_hash", "ima_hash = %lu\n",
+	      ima_hash_from_bpf);
 
 close_clean:
 	snprintf(cmd, sizeof(cmd), "./ima_setup.sh cleanup %s", measured_dir);
