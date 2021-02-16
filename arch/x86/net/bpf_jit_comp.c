@@ -1301,6 +1301,7 @@ st:			if (is_imm8(insn->off))
 			    insn->imm == (BPF_XOR | BPF_FETCH)) {
 				u8 *branch_target;
 				bool is64 = BPF_SIZE(insn->code) == BPF_DW;
+				u32 real_src_reg = src_reg;
 
 				/*
 				 * Can't be implemented with a single x86 insn.
@@ -1309,6 +1310,9 @@ st:			if (is_imm8(insn->off))
 
 				/* Will need RAX as a CMPXCHG operand so save R0 */
 				emit_mov_reg(&prog, true, BPF_REG_AX, BPF_REG_0);
+				if (src_reg == BPF_REG_0)
+					real_src_reg = BPF_REG_AX;
+
 				branch_target = prog;
 				/* Load old value */
 				emit_ldx(&prog, BPF_SIZE(insn->code),
@@ -1318,9 +1322,9 @@ st:			if (is_imm8(insn->off))
 				 * put the result in the AUX_REG.
 				 */
 				emit_mov_reg(&prog, is64, AUX_REG, BPF_REG_0);
-				maybe_emit_mod(&prog, AUX_REG, src_reg, is64);
+				maybe_emit_mod(&prog, AUX_REG, real_src_reg, is64);
 				EMIT2(simple_alu_opcodes[BPF_OP(insn->imm)],
-				      add_2reg(0xC0, AUX_REG, src_reg));
+				      add_2reg(0xC0, AUX_REG, real_src_reg));
 				/* Attempt to swap in new value */
 				err = emit_atomic(&prog, BPF_CMPXCHG,
 						  dst_reg, AUX_REG, insn->off,
@@ -1333,7 +1337,7 @@ st:			if (is_imm8(insn->off))
 				 */
 				EMIT2(X86_JNE, -(prog - branch_target) - 2);
 				/* Return the pre-modification value */
-				emit_mov_reg(&prog, is64, src_reg, BPF_REG_0);
+				emit_mov_reg(&prog, is64, real_src_reg, BPF_REG_0);
 				/* Restore R0 after clobbering RAX */
 				emit_mov_reg(&prog, true, BPF_REG_0, BPF_REG_AX);
 				break;
