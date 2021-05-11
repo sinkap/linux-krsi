@@ -401,7 +401,8 @@ static void __init security_static_slots_init(struct security_hook_list *hl)
 		if (!static_key_enabled(slot->enabled_key)) {
 			__static_call_update(slot->key, slot->trampoline, hl->hook.generic_func);
 			slot->hl = hl;
-			static_key_enable(slot->enabled_key);
+			if (hl->default_state)
+				static_key_enable(slot->enabled_key);
 			return;
 		}
 		slot++;

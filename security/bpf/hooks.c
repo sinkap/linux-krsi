@@ -8,7 +8,7 @@
 
 static struct security_hook_list bpf_lsm_hooks[] __lsm_ro_after_init = {
 	#define LSM_HOOK(RET, DEFAULT, NAME, ...) \
-	LSM_HOOK_INIT(NAME, bpf_lsm_##NAME),
+	LSM_HOOK_INIT_DISABLED(NAME, bpf_lsm_##NAME),
 	#include <linux/lsm_hook_defs.h>
 	#undef LSM_HOOK
 	LSM_HOOK_INIT(inode_free_security, bpf_inode_storage_free),
@@ -27,8 +27,30 @@ struct lsm_blob_sizes bpf_lsm_blob_sizes __lsm_ro_after_init = {
 	.lbs_task = sizeof(struct bpf_storage_blob),
 };
 
-DEFINE_LSM(bpf) = {
-	.name = "bpf",
-	.init = bpf_lsm_init,
-	.blobs = &bpf_lsm_blob_sizes
-};
+DEFINE_LSM(bpf) = { .name = "bpf",
+		    .init = bpf_lsm_init,
+		    .blobs = &bpf_lsm_blob_sizes };
+
+void bpf_lsm_toggle_hook(void *addr, bool value)
+{
+	struct security_hook_list *h;
+	struct security_hook_slot *slots;
+	int i, j;
+
+	for (i = 0; i < ARRAY_SIZE(bpf_lsm_hooks); i++) {
+		h = &bpf_lsm_hooks[i];
+		slots = h->slots;
+		if (h->hook.generic_func == addr)
+			continue;
+
+		for (j = 0; j < SECURITY_STATIC_SLOT_COUNT; j++) {
+			if (slots[j].hl != h)
+				continue;
+
+			if (value)
+				static_key_enable(slots[j].enabled_key);
+			else
+				static_key_disable(slots[j].enabled_key);
+		}
+	}
+}
