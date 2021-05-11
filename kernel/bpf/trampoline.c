@@ -11,6 +11,7 @@
 #include <linux/rcupdate_wait.h>
 #include <linux/module.h>
 #include <linux/static_call.h>
+#include <linux/bpf_lsm.h>
 
 /* dummy _ops. The verifier will operate on target program's ops. */
 const struct bpf_verifier_ops bpf_extension_verifier_ops = {
@@ -460,11 +461,18 @@ int bpf_trampoline_link_prog(struct bpf_tramp_link *link, struct bpf_trampoline 
 
 	hlist_add_head(&link->tramp_hlist, &tr->progs_hlist[kind]);
 	tr->progs_cnt[kind]++;
+
 	err = bpf_trampoline_update(tr);
 	if (err) {
 		hlist_del_init(&link->tramp_hlist);
 		tr->progs_cnt[kind]--;
 	}
+
+	if (link->link.prog->type == BPF_PROG_TYPE_LSM)
+		tr->num_lsm_progs++;
+
+	if (tr->num_lsm_progs)
+		bpf_lsm_toggle_hook(tr->func.addr, true);
 out:
 	mutex_unlock(&tr->mutex);
 	return err;
@@ -487,6 +495,13 @@ int bpf_trampoline_unlink_prog(struct bpf_tramp_link *link, struct bpf_trampolin
 	}
 	hlist_del_init(&link->tramp_hlist);
 	tr->progs_cnt[kind]--;
+
+	if (link->link.prog->type == BPF_PROG_TYPE_LSM)
+		tr->num_lsm_progs--;
+
+	if (!tr->num_lsm_progs)
+		bpf_lsm_toggle_hook(tr->func.addr, false);
+
 	err = bpf_trampoline_update(tr);
 out:
 	mutex_unlock(&tr->mutex);
