@@ -1654,7 +1654,15 @@ struct lsm_blob_sizes {
 #define LSM_HOOK_INIT(NAME, CALLBACK)		\
 	{					\
 		.slots = security_hook_slots.NAME, 	\
-		.hook = { .NAME = CALLBACK }	\
+		.hook = { .NAME = CALLBACK },	\
+		.default_state = true		\
+	}
+
+#define LSM_HOOK_INIT_DISABLED(NAME, CALLBACK)	\
+	{					\
+		.slots = security_hook_slots.NAME, 	\
+		.hook = { .NAME = CALLBACK },	\
+		.default_state = false		\
 	}
 
 extern char *lsm_names;
