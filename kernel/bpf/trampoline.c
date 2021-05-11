@@ -14,6 +14,7 @@
 #include <linux/bpf_verifier.h>
 #include <linux/bpf_lsm.h>
 #include <linux/delay.h>
+#include <linux/bpf_lsm.h>
 
 /* dummy _ops. The verifier will operate on target program's ops. */
 const struct bpf_verifier_ops bpf_extension_verifier_ops = {
@@ -573,6 +574,7 @@ static int __bpf_trampoline_link_prog(struct bpf_tramp_link *link, struct bpf_tr
 		hlist_del_init(&link->tramp_hlist);
 		tr->progs_cnt[kind]--;
 	}
+
 	return err;
 }
 
@@ -582,6 +584,13 @@ int bpf_trampoline_link_prog(struct bpf_tramp_link *link, struct bpf_trampoline 
 
 	mutex_lock(&tr->mutex);
 	err = __bpf_trampoline_link_prog(link, tr);
+
+	if (link->link.prog->type == BPF_PROG_TYPE_LSM)
+		tr->num_lsm_progs++;
+
+	if (tr->num_lsm_progs)
+		bpf_lsm_toggle_hook(tr->func.addr, true);
+out:
 	mutex_unlock(&tr->mutex);
 	return err;
 }
@@ -611,6 +620,15 @@ int bpf_trampoline_unlink_prog(struct bpf_tramp_link *link, struct bpf_trampolin
 
 	mutex_lock(&tr->mutex);
 	err = __bpf_trampoline_unlink_prog(link, tr);
+
+	if (link->link.prog->type == BPF_PROG_TYPE_LSM)
+		tr->num_lsm_progs--;
+
+	if (!tr->num_lsm_progs)
+		bpf_lsm_toggle_hook(tr->func.addr, false);
+
+	err = bpf_trampoline_update(tr);
+out:
 	mutex_unlock(&tr->mutex);
 	return err;
 }
