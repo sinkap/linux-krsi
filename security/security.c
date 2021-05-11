@@ -29,6 +29,9 @@
 #include <linux/string.h>
 #include <linux/msg.h>
 #include <net/flow.h>
+#include <linux/static_call.h>
+#include <linux/lsm_static_call.h>
+#include <linux/jump_label.h>
 
 #define MAX_LSM_EVM_XATTR	2
 
@@ -69,7 +72,6 @@ const char *const lockdown_reasons[LOCKDOWN_CONFIDENTIALITY_MAX+1] = {
 	[LOCKDOWN_CONFIDENTIALITY_MAX] = "confidentiality",
 };
 
-struct security_hook_heads security_hook_heads __lsm_ro_after_init;
 static BLOCKING_NOTIFIER_HEAD(blocking_lsm_notifier_chain);
 
 static struct kmem_cache *lsm_file_cache;
@@ -87,6 +89,74 @@ static __initconst const char * const builtin_lsm_order = CONFIG_LSM;
 /* Ordered list of LSMs to initialize. */
 static __initdata struct lsm_info **ordered_lsms;
 static __initdata struct lsm_info *exclusive;
+
+/*
+ * Create the static slots for each LSM hook, initially empty.
+ * This will expand to:
+ *
+ * [...]
+ *
+ * DEFINE_STATIC_CALL_NULL(security_static_slot_file_permission_0,
+ *			   *((int(*)(struct file *file, int mask)))NULL);
+ * DEFINE_STATIC_CALL_NULL(security_static_slot_file_permission_1, ...);
+ *
+ * [...]
+ */
+
+#define CREATE_STATIC_SLOT(NUM, NAME, RET, ...)				\
+	DEFINE_STATIC_CALL_NULL(SECURITY_STATIC_SLOT(NAME, NUM),			\
+				*((RET(*)(__VA_ARGS__))NULL));		\
+	DEFINE_STATIC_KEY_FALSE(SECURITY_HOOK_ENABLED_KEY(NAME, NUM));
+
+#define LSM_HOOK(RET, DEFAULT, NAME, ...)				\
+	SECURITY_FOREACH_STATIC_SLOT(CREATE_STATIC_SLOT, NAME, RET, __VA_ARGS__)
+#include <linux/lsm_hook_defs.h>
+#undef LSM_HOOK
+#undef CREATE_STATIC_SLOT
+
+/*
+ * Initialise a table of static slots for each LSM hook.
+ * When defined with DEFINE_STATIC_CALL_NULL as above, a static call is
+ * a key and a trampoline. Both are needed to use __static_call_update.
+ * This will expand to:
+ * struct security_static_slots security_hook_slots = {
+ *	[...]
+ *	.file_permission = {
+ *		(struct security_hook_slot) {
+ *			.key = &STATIC_CALL_KEY(
+ *				security_static_slot_file_permission_0),
+ *			.trampoline = &STATIC_CALL_TRAMP(
+ *				security_static_slot_file_permission_0)
+ *		},
+ *		(struct security_hook_slot) {
+ *			.key = &STATIC_CALL_KEY(
+ *				security_static_slot_file_permission_1),
+ *			.trampoline = &STATIC_CALL_TRAMP(
+ *				security_static_slot_file_permission_1)
+ *		},
+ *		[...]
+ *	},
+ *	.file_alloc_security = {
+ *		[...]
+ *	},
+ *	[...]
+ * }
+ */
+struct security_static_slots security_hook_slots __lsm_ro_after_init = {
+#define DEFINE_SLOT(NUM, NAME)						\
+	(struct security_hook_slot) {					\
+		.key = &STATIC_CALL_KEY(SECURITY_STATIC_SLOT(NAME, NUM)),	\
+		.trampoline = &STATIC_CALL_TRAMP(SECURITY_STATIC_SLOT(NAME, NUM)),\
+		.enabled_key = &SECURITY_HOOK_ENABLED_KEY(NAME, NUM).key,\
+	},
+#define LSM_HOOK(RET, DEFAULT, NAME, ...)				\
+	.NAME = {							\
+		SECURITY_FOREACH_STATIC_SLOT(DEFINE_SLOT, NAME)		\
+	},
+#include <linux/lsm_hook_defs.h>
+#undef LSM_HOOK
+#undef DEFINE_SLOT
+};
 
 static __initdata bool debug;
 #define init_debug(...)						\
@@ -310,6 +380,23 @@ static void __init ordered_lsm_parse(const char *order, const char *origin)
 	kfree(sep);
 }
 
+static void __init security_static_slots_init(struct security_hook_list *hl)
+{
+	struct security_hook_slot *slot = hl->slots;
+	int i;
+
+	for (i = 0; i < SECURITY_STATIC_SLOT_COUNT; i++) {
+		if (!static_key_enabled(slot->enabled_key)) {
+			__static_call_update(slot->key, slot->trampoline, hl->hook.generic_func);
+			slot->hl = hl;
+			static_key_enable(slot->enabled_key);
+			return;
+		}
+		slot++;
+	}
+	panic("%s - No static hook slot remaining to add LSM hook.\n", __func__);
+}
+
 static void __init lsm_early_cred(struct cred *cred);
 static void __init lsm_early_task(struct task_struct *task);
 
@@ -364,13 +451,7 @@ static void __init ordered_lsm_init(void)
 
 int __init early_security_init(void)
 {
-	int i;
-	struct hlist_head *list = (struct hlist_head *) &security_hook_heads;
 	struct lsm_info *lsm;
-
-	for (i = 0; i < sizeof(security_hook_heads) / sizeof(struct hlist_head);
-	     i++)
-		INIT_HLIST_HEAD(&list[i]);
 
 	for (lsm = __start_early_lsm_info; lsm < __end_early_lsm_info; lsm++) {
 		if (!lsm->enabled)
@@ -378,7 +459,6 @@ int __init early_security_init(void)
 		prepare_lsm(lsm);
 		initialize_lsm(lsm);
 	}
-
 	return 0;
 }
 
@@ -483,7 +563,7 @@ void __init security_add_hooks(struct security_hook_list *hooks, int count,
 
 	for (i = 0; i < count; i++) {
 		hooks[i].lsm = lsm;
-		hlist_add_tail_rcu(&hooks[i].list, hooks[i].head);
+		security_static_slots_init(&hooks[i]);
 	}
 
 	/*
@@ -721,28 +801,40 @@ static int lsm_superblock_alloc(struct super_block *sb)
  * call_int_hook:
  *	This is a hook that returns a value.
  */
+#define __CALL_STATIC_VOID(NUM, HOOK, ...)						\
+		if (static_branch_likely(&SECURITY_HOOK_ENABLED_KEY(HOOK, NUM))) {	\
+			static_call(SECURITY_STATIC_SLOT(HOOK, NUM))(__VA_ARGS__);		\
+		}
 
-#define call_void_hook(FUNC, ...)				\
-	do {							\
-		struct security_hook_list *P;			\
-								\
-		hlist_for_each_entry(P, &security_hook_heads.FUNC, list) \
-			P->hook.FUNC(__VA_ARGS__);		\
-	} while (0)
+#define call_void_hook(FUNC, ...) do {					\
+	SECURITY_FOREACH_STATIC_SLOT(__CALL_STATIC_VOID,		\
+				     FUNC, __VA_ARGS__)			\
+} while (0)
 
-#define call_int_hook(FUNC, IRC, ...) ({			\
-	int RC = IRC;						\
+#define __CALL_STATIC_INT(NUM, R, HOOK, ...)				\
+		if (static_branch_likely(&SECURITY_HOOK_ENABLED_KEY(HOOK, NUM))) {	\
+			R = static_call(SECURITY_STATIC_SLOT(HOOK, NUM))(__VA_ARGS__);	\
+			if (R != 0)						\
+				goto out;					\
+		}
+
+#define call_int_hook(FUNC, IRC, ...) ({				\
+	__label__ out;							\
+	int RC = IRC;							\
 	do {							\
-		struct security_hook_list *P;			\
-								\
-		hlist_for_each_entry(P, &security_hook_heads.FUNC, list) { \
-			RC = P->hook.FUNC(__VA_ARGS__);		\
-			if (RC != 0)				\
-				break;				\
-		}						\
-	} while (0);						\
-	RC;							\
+		SECURITY_FOREACH_STATIC_SLOT(__CALL_STATIC_INT,		\
+				     	     RC, FUNC, __VA_ARGS__)	\
+									\
+	} while(0);							\
+out:									\
+	RC;								\
 })
+
+#define security_for_each_hook(slot, NAME)				      \
+	for (slot = security_hook_slots.NAME;				      \
+	     ((slot - security_hook_slots.NAME) < SECURITY_STATIC_SLOT_COUNT) \
+	      && static_key_enabled(slot->enabled_key);			      \
+	     slot++)
 
 /* Security operations */
 
@@ -827,7 +919,7 @@ int security_settime64(const struct timespec64 *ts, const struct timezone *tz)
 
 int security_vm_enough_memory_mm(struct mm_struct *mm, long pages)
 {
-	struct security_hook_list *hp;
+	struct security_hook_slot *slot;
 	int cap_sys_admin = 1;
 	int rc;
 
@@ -838,8 +930,8 @@ int security_vm_enough_memory_mm(struct mm_struct *mm, long pages)
 	 * agree that it should be set it will. If any module
 	 * thinks it should not be set it won't.
 	 */
-	hlist_for_each_entry(hp, &security_hook_heads.vm_enough_memory, list) {
-		rc = hp->hook.vm_enough_memory(mm, pages);
+	security_for_each_hook(slot, vm_enough_memory) {
+		rc = slot->hl->hook.vm_enough_memory(mm, pages);
 		if (rc <= 0) {
 			cap_sys_admin = 0;
 			break;
@@ -1417,7 +1509,7 @@ int security_inode_getsecurity(struct user_namespace *mnt_userns,
 			       struct inode *inode, const char *name,
 			       void **buffer, bool alloc)
 {
-	struct security_hook_list *hp;
+	struct security_hook_slot *slot;
 	int rc;
 
 	if (unlikely(IS_PRIVATE(inode)))
@@ -1425,8 +1517,8 @@ int security_inode_getsecurity(struct user_namespace *mnt_userns,
 	/*
 	 * Only one module will provide an attribute with a given name.
 	 */
-	hlist_for_each_entry(hp, &security_hook_heads.inode_getsecurity, list) {
-		rc = hp->hook.inode_getsecurity(mnt_userns, inode, name, buffer, alloc);
+	security_for_each_hook(slot, inode_getsecurity) {
+		rc = slot->hl->hook.inode_getsecurity(mnt_userns, inode, name, buffer, alloc);
 		if (rc != LSM_RET_DEFAULT(inode_getsecurity))
 			return rc;
 	}
@@ -1435,7 +1527,7 @@ int security_inode_getsecurity(struct user_namespace *mnt_userns,
 
 int security_inode_setsecurity(struct inode *inode, const char *name, const void *value, size_t size, int flags)
 {
-	struct security_hook_list *hp;
+	struct security_hook_slot *slot;
 	int rc;
 
 	if (unlikely(IS_PRIVATE(inode)))
@@ -1443,9 +1535,8 @@ int security_inode_setsecurity(struct inode *inode, const char *name, const void
 	/*
 	 * Only one module will provide an attribute with a given name.
 	 */
-	hlist_for_each_entry(hp, &security_hook_heads.inode_setsecurity, list) {
-		rc = hp->hook.inode_setsecurity(inode, name, value, size,
-								flags);
+	security_for_each_hook(slot, inode_setsecurity) {
+		rc = slot->hl->hook.inode_setsecurity(inode, name, value, size, flags);
 		if (rc != LSM_RET_DEFAULT(inode_setsecurity))
 			return rc;
 	}
@@ -1473,7 +1564,7 @@ EXPORT_SYMBOL(security_inode_copy_up);
 
 int security_inode_copy_up_xattr(const char *name)
 {
-	struct security_hook_list *hp;
+	struct security_hook_slot *slot;
 	int rc;
 
 	/*
@@ -1481,9 +1572,8 @@ int security_inode_copy_up_xattr(const char *name)
 	 * xattr), -EOPNOTSUPP if it does not know anything about the xattr or
 	 * any other error code incase of an error.
 	 */
-	hlist_for_each_entry(hp,
-		&security_hook_heads.inode_copy_up_xattr, list) {
-		rc = hp->hook.inode_copy_up_xattr(name);
+	security_for_each_hook(slot, inode_copy_up_xattr) {
+		rc = slot->hl->hook.inode_copy_up_xattr(name);
 		if (rc != LSM_RET_DEFAULT(inode_copy_up_xattr))
 			return rc;
 	}
@@ -1873,10 +1963,10 @@ int security_task_prctl(int option, unsigned long arg2, unsigned long arg3,
 {
 	int thisrc;
 	int rc = LSM_RET_DEFAULT(task_prctl);
-	struct security_hook_list *hp;
+	struct security_hook_slot *slot;
 
-	hlist_for_each_entry(hp, &security_hook_heads.task_prctl, list) {
-		thisrc = hp->hook.task_prctl(option, arg2, arg3, arg4, arg5);
+	security_for_each_hook(slot, task_prctl) {
+		thisrc = slot->hl->hook.task_prctl(option, arg2, arg3, arg4, arg5);
 		if (thisrc != LSM_RET_DEFAULT(task_prctl)) {
 			rc = thisrc;
 			if (thisrc != 0)
@@ -2042,12 +2132,12 @@ EXPORT_SYMBOL(security_d_instantiate);
 int security_getprocattr(struct task_struct *p, const char *lsm, char *name,
 				char **value)
 {
-	struct security_hook_list *hp;
+	struct security_hook_slot *slot;
 
-	hlist_for_each_entry(hp, &security_hook_heads.getprocattr, list) {
-		if (lsm != NULL && strcmp(lsm, hp->lsm))
+	security_for_each_hook(slot, getprocattr) {
+		if (lsm != NULL && strcmp(lsm, slot->hl->lsm))
 			continue;
-		return hp->hook.getprocattr(p, name, value);
+		return slot->hl->hook.getprocattr(p, name, value);
 	}
 	return LSM_RET_DEFAULT(getprocattr);
 }
@@ -2055,12 +2145,12 @@ int security_getprocattr(struct task_struct *p, const char *lsm, char *name,
 int security_setprocattr(const char *lsm, const char *name, void *value,
 			 size_t size)
 {
-	struct security_hook_list *hp;
+	struct security_hook_slot *slot;;
 
-	hlist_for_each_entry(hp, &security_hook_heads.setprocattr, list) {
-		if (lsm != NULL && strcmp(lsm, hp->lsm))
+	security_for_each_hook(slot, setprocattr) {
+		if (lsm != NULL && strcmp(lsm, slot->hl->lsm))
 			continue;
-		return hp->hook.setprocattr(name, value, size);
+		return slot->hl->hook.setprocattr(name, value, size);
 	}
 	return LSM_RET_DEFAULT(setprocattr);
 }
@@ -2078,15 +2168,15 @@ EXPORT_SYMBOL(security_ismaclabel);
 
 int security_secid_to_secctx(u32 secid, char **secdata, u32 *seclen)
 {
-	struct security_hook_list *hp;
+	struct security_hook_slot *slot;
 	int rc;
 
 	/*
 	 * Currently, only one LSM can implement secid_to_secctx (i.e this
 	 * LSM hook is not "stackable").
 	 */
-	hlist_for_each_entry(hp, &security_hook_heads.secid_to_secctx, list) {
-		rc = hp->hook.secid_to_secctx(secid, secdata, seclen);
+	security_for_each_hook(slot, secid_to_secctx) {
+		rc = slot->hl->hook.secid_to_secctx(secid, secdata, seclen);
 		if (rc != LSM_RET_DEFAULT(secid_to_secctx))
 			return rc;
 	}
@@ -2475,7 +2565,7 @@ int security_xfrm_state_pol_flow_match(struct xfrm_state *x,
 				       struct xfrm_policy *xp,
 				       const struct flowi_common *flic)
 {
-	struct security_hook_list *hp;
+	struct security_hook_slot *slot;
 	int rc = LSM_RET_DEFAULT(xfrm_state_pol_flow_match);
 
 	/*
@@ -2487,9 +2577,8 @@ int security_xfrm_state_pol_flow_match(struct xfrm_state *x,
 	 * For speed optimization, we explicitly break the loop rather than
 	 * using the macro
 	 */
-	hlist_for_each_entry(hp, &security_hook_heads.xfrm_state_pol_flow_match,
-				list) {
-		rc = hp->hook.xfrm_state_pol_flow_match(x, xp, flic);
+	security_for_each_hook(slot, xfrm_state_pol_flow_match) {
+		rc = slot->hl->hook.xfrm_state_pol_flow_match(x, xp, flic);
 		break;
 	}
 	return rc;
