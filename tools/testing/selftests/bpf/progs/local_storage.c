@@ -25,21 +25,22 @@ struct local_storage {
 
 struct {
 	__uint(type, BPF_MAP_TYPE_INODE_STORAGE);
-	__uint(map_flags, BPF_F_NO_PREALLOC);
+	__uint(map_flags, BPF_F_NO_PREALLOC | BPF_F_SLEEPABLE_STORAGE);
 	__type(key, int);
 	__type(value, struct local_storage);
 } inode_storage_map SEC(".maps");
 
 struct {
 	__uint(type, BPF_MAP_TYPE_SK_STORAGE);
-	__uint(map_flags, BPF_F_NO_PREALLOC | BPF_F_CLONE);
+	__uint(map_flags,
+	       BPF_F_NO_PREALLOC | BPF_F_CLONE | BPF_F_SLEEPABLE_STORAGE);
 	__type(key, int);
 	__type(value, struct local_storage);
 } sk_storage_map SEC(".maps");
 
 struct {
 	__uint(type, BPF_MAP_TYPE_TASK_STORAGE);
-	__uint(map_flags, BPF_F_NO_PREALLOC);
+	__uint(map_flags, BPF_F_NO_PREALLOC | BPF_F_SLEEPABLE_STORAGE);
 	__type(key, int);
 	__type(value, struct local_storage);
 } task_storage_map SEC(".maps");

@@ -11783,6 +11783,7 @@ static int check_map_prog_compatibility(struct bpf_verifier_env *env,
 		case BPF_MAP_TYPE_PERCPU_ARRAY:
 		case BPF_MAP_TYPE_LRU_PERCPU_HASH:
 		case BPF_MAP_TYPE_ARRAY_OF_MAPS:
+		case BPF_MAP_TYPE_RINGBUF:
 		case BPF_MAP_TYPE_HASH_OF_MAPS:
 			if (!is_preallocated_map(map)) {
 				verbose(env,
@@ -11790,7 +11791,14 @@ static int check_map_prog_compatibility(struct bpf_verifier_env *env,
 				return -EINVAL;
 			}
 			break;
-		case BPF_MAP_TYPE_RINGBUF:
+		case BPF_MAP_TYPE_INODE_STORAGE:
+		case BPF_MAP_TYPE_SK_STORAGE:
+		case BPF_MAP_TYPE_TASK_STORAGE:
+			if (!(map->map_flags & BPF_F_SLEEPABLE_STORAGE)) {
+				verbose(env,
+					"Sleepable programs can only local storage with BPF_F_SLEEPABLE_STORAGE flag\n");
+				return -EINVAL;
+			}
 			break;
 		default:
 			verbose(env,

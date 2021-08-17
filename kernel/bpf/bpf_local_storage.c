@@ -11,8 +11,12 @@
 #include <net/sock.h>
 #include <uapi/linux/sock_diag.h>
 #include <uapi/linux/btf.h>
+#include <linux/rcupdate.h>
+#include <linux/rcupdate_trace.h>
+#include <linux/rcupdate_wait.h>
 
-#define BPF_LOCAL_STORAGE_CREATE_FLAG_MASK (BPF_F_NO_PREALLOC | BPF_F_CLONE)
+#define BPF_LOCAL_STORAGE_CREATE_FLAG_MASK                                     \
+	(BPF_F_NO_PREALLOC | BPF_F_CLONE | BPF_F_SLEEPABLE_STORAGE)
 
 static struct bpf_local_storage_map_bucket *
 select_bucket(struct bpf_local_storage_map *smap,
@@ -81,6 +85,22 @@ bpf_selem_alloc(struct bpf_local_storage_map *smap, void *owner,
 	return NULL;
 }
 
+void bpf_local_storage_free_rcu(struct rcu_head *rcu)
+{
+	struct bpf_local_storage *local_storage;
+
+	local_storage = container_of(rcu, struct bpf_local_storage, rcu);
+	kfree_rcu(local_storage, rcu);
+}
+
+static void bpf_selem_free_rcu(struct rcu_head *rcu)
+{
+	struct bpf_local_storage_elem *selem;
+
+	selem = container_of(rcu, struct bpf_local_storage_elem, rcu);
+	kfree_rcu(selem, rcu);
+}
+
 /* local_storage->lock must be held and selem->local_storage == local_storage.
  * The caller must ensure selem->smap is still valid to be
  * dereferenced for its smap->elem_size and smap->cache_idx.
@@ -93,7 +113,7 @@ bool bpf_selem_unlink_storage_nolock(struct bpf_local_storage *local_storage,
 	bool free_local_storage;
 	void *owner;
 
-	smap = rcu_dereference(SDATA(selem)->smap);
+	smap = rcu_dereference_check(SDATA(selem)->smap, bpf_rcu_lock_held());
 	owner = local_storage->owner;
 
 	/* All uncharging on the owner must be done first.
@@ -118,20 +138,18 @@ bool bpf_selem_unlink_storage_nolock(struct bpf_local_storage *local_storage,
 		 *
 		 * Although the unlock will be done under
 		 * rcu_read_lock(),  it is more intutivie to
-		 * read if kfree_rcu(local_storage, rcu) is done
+		 * read if the freeing of the storage is done
 		 * after the raw_spin_unlock_bh(&local_storage->lock).
 		 *
 		 * Hence, a "bool free_local_storage" is returned
-		 * to the caller which then calls the kfree_rcu()
-		 * after unlock.
+		 * to the caller which then calls then frees the storage after
+		 * all the RCU grace periods have expired.
 		 */
 	}
 	hlist_del_init_rcu(&selem->snode);
 	if (rcu_access_pointer(local_storage->cache[smap->cache_idx]) ==
 	    SDATA(selem))
 		RCU_INIT_POINTER(local_storage->cache[smap->cache_idx], NULL);
-
-	kfree_rcu(selem, rcu);
 
 	return free_local_storage;
 }
@@ -141,20 +159,37 @@ static void __bpf_selem_unlink_storage(struct bpf_local_storage_elem *selem)
 	struct bpf_local_storage *local_storage;
 	bool free_local_storage = false;
 	unsigned long flags;
+	bool sleepable;
 
 	if (unlikely(!selem_linked_to_storage(selem)))
 		/* selem has already been unlinked from sk */
 		return;
 
-	local_storage = rcu_dereference(selem->local_storage);
+	local_storage = rcu_dereference_check(selem->local_storage,
+					      bpf_rcu_lock_held());
 	raw_spin_lock_irqsave(&local_storage->lock, flags);
 	if (likely(selem_linked_to_storage(selem)))
 		free_local_storage = bpf_selem_unlink_storage_nolock(
 			local_storage, selem, true);
 	raw_spin_unlock_irqrestore(&local_storage->lock, flags);
 
-	if (free_local_storage)
-		kfree_rcu(local_storage, rcu);
+	sleepable = selem->sdata.smap->map.map_flags & BPF_F_SLEEPABLE_STORAGE;
+	/* The element needs to be freed outside the raw spinlock because spin
+	 * locks cannot nest inside a raw spin locks and call_rcu_tasks_trace
+	 * grabs a spinklock when the RCU code calls into the scheduler.
+	 */
+	if (sleepable) {
+		call_rcu_tasks_trace(&selem->rcu, bpf_selem_free_rcu);
+		if (free_local_storage)
+			call_rcu_tasks_trace(&local_storage->rcu,
+					     bpf_local_storage_free_rcu);
+	}
+	else {
+		kfree_rcu(selem, rcu);
+		if (free_local_storage)
+			kfree_rcu(local_storage, rcu);
+
+	}
 }
 
 void bpf_selem_link_storage_nolock(struct bpf_local_storage *local_storage,
@@ -174,7 +209,7 @@ void bpf_selem_unlink_map(struct bpf_local_storage_elem *selem)
 		/* selem has already be unlinked from smap */
 		return;
 
-	smap = rcu_dereference(SDATA(selem)->smap);
+	smap = rcu_dereference_check(SDATA(selem)->smap, bpf_rcu_lock_held());
 	b = select_bucket(smap, selem);
 	raw_spin_lock_irqsave(&b->lock, flags);
 	if (likely(selem_linked_to_map(selem)))
@@ -213,7 +248,8 @@ bpf_local_storage_lookup(struct bpf_local_storage *local_storage,
 	struct bpf_local_storage_elem *selem;
 
 	/* Fast path (cache hit) */
-	sdata = rcu_dereference(local_storage->cache[smap->cache_idx]);
+	sdata = rcu_dereference_check(local_storage->cache[smap->cache_idx],
+				      bpf_rcu_lock_held());
 	if (sdata && rcu_access_pointer(sdata->smap) == smap)
 		return sdata;
 
@@ -306,7 +342,8 @@ int bpf_local_storage_alloc(void *owner,
 		 * bucket->list, first_selem can be freed immediately
 		 * (instead of kfree_rcu) because
 		 * bpf_local_storage_map_free() does a
-		 * synchronize_rcu() before walking the bucket->list.
+		 * synchronize_rcu_mult (waiting for both sleepable and
+		 * normal programs) before walking the bucket->list.
 		 * Hence, no one is accessing selem from the
 		 * bucket->list under rcu_read_lock().
 		 */
@@ -342,7 +379,8 @@ bpf_local_storage_update(void *owner, struct bpf_local_storage_map *smap,
 		     !map_value_has_spin_lock(&smap->map)))
 		return ERR_PTR(-EINVAL);
 
-	local_storage = rcu_dereference(*owner_storage(smap, owner));
+	local_storage = rcu_dereference_check(*owner_storage(smap, owner),
+					      bpf_rcu_lock_held());
 	if (!local_storage || hlist_empty(&local_storage->list)) {
 		/* Very first elem for the owner */
 		err = check_flags(NULL, map_flags);
@@ -485,8 +523,15 @@ void bpf_local_storage_map_free(struct bpf_local_storage_map *smap,
 	 * bpf_sk_storage_clone. Wait for any existing bpf_sk_storage_clone
 	 * RCU read section to finish before proceeding. New RCU
 	 * read sections should be prevented via bpf_map_inc_not_zero.
+	 *
+	 * A call_rcu_tasks_trace is an expensive operation but
+	 * bpf_local_storage_map_free is not called from the BPF program or
+	 * hotpaths. It's called when the owning object is freed.
 	 */
-	synchronize_rcu();
+	if (smap->map.map_flags & BPF_F_SLEEPABLE_STORAGE)
+		synchronize_rcu_mult(call_rcu, call_rcu_tasks_trace);
+	else
+		synchronize_rcu();
 
 	/* bpf prog and the userspace can no longer access this map
 	 * now.  No new selem (of this map) can be added
@@ -530,7 +575,10 @@ void bpf_local_storage_map_free(struct bpf_local_storage_map *smap,
 	 *
 	 * Hence, wait another rcu grace period for the storage to be freed.
 	 */
-	synchronize_rcu();
+	if (smap->map.map_flags & BPF_F_SLEEPABLE_STORAGE)
+		synchronize_rcu_mult(call_rcu, call_rcu_tasks_trace);
+	else
+		synchronize_rcu();
 
 	kvfree(smap->buckets);
 	kfree(smap);
