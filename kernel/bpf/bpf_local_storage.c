@@ -85,14 +85,6 @@ bpf_selem_alloc(struct bpf_local_storage_map *smap, void *owner,
 	return NULL;
 }
 
-void bpf_local_storage_free_rcu(struct rcu_head *rcu)
-{
-	struct bpf_local_storage *local_storage;
-
-	local_storage = container_of(rcu, struct bpf_local_storage, rcu);
-	kfree_rcu(local_storage, rcu);
-}
-
 static void bpf_selem_free_rcu(struct rcu_head *rcu)
 {
 	struct bpf_local_storage_elem *selem;
@@ -154,12 +146,53 @@ bool bpf_selem_unlink_storage_nolock(struct bpf_local_storage *local_storage,
 	return free_local_storage;
 }
 
+void bpf_selem_unlink_storage_list(struct bpf_local_storage *local_storage,
+				   bool uncharge_mem)
+{
+
+	struct bpf_local_storage_elem *selem;
+	bool free_local_storage;
+	struct hlist_head free_list;	
+	struct hlist_node *n;
+	unsigned long flags;
+
+	INIT_HLIST_HEAD(&free_list);
+	raw_spin_lock_irqsave(&local_storage->lock, flags);
+	hlist_for_each_entry_safe(selem, n, &local_storage->list, snode) {
+		/* Always unlink from map before unlinking from
+		 * local_storage.
+		 */
+		bpf_selem_unlink_map(selem);
+		free_local_storage = bpf_selem_unlink_storage_nolock(
+			local_storage, selem, false);
+		hlist_add_head(&selem->snode, &free_list);
+	}
+	raw_spin_unlock_irqrestore(&local_storage->lock, flags);
+
+
+	/* The element needs to be freed outside the raw spinlock because spin
+	 * locks cannot nest inside a raw spin locks and call_rcu_tasks_trace
+	 * grabs a spinklock when the RCU code calls into the scheduler.
+	 * 
+	 * free_local_storage should always be true as long as
+	 * local_storage->list was non-empty.
+	 */
+	hlist_for_each_entry_safe(selem, n, &free_list, snode) {
+		if (selem->sdata.smap->map.map_flags & BPF_F_SLEEPABLE_STORAGE)
+			call_rcu_tasks_trace(&selem->rcu, bpf_selem_free_rcu);
+		else
+			kfree_rcu(selem, rcu);
+	}
+
+	if (free_local_storage)
+		kfree_rcu(&local_storage->rcu);
+}
+
 static void __bpf_selem_unlink_storage(struct bpf_local_storage_elem *selem)
 {
 	struct bpf_local_storage *local_storage;
 	bool free_local_storage = false;
 	unsigned long flags;
-	bool sleepable;
 
 	if (unlikely(!selem_linked_to_storage(selem)))
 		/* selem has already been unlinked from sk */
@@ -168,17 +201,18 @@ static void __bpf_selem_unlink_storage(struct bpf_local_storage_elem *selem)
 	local_storage = rcu_dereference_check(selem->local_storage,
 					      bpf_rcu_lock_held());
 	raw_spin_lock_irqsave(&local_storage->lock, flags);
-	if (likely(selem_linked_to_storage(selem)))
+	bpf_selem_unlink_map(selem);
 		free_local_storage = bpf_selem_unlink_storage_nolock(
-			local_storage, selem, true);
+			local_storage, selem, false);
 	raw_spin_unlock_irqrestore(&local_storage->lock, flags);
-
-	sleepable = selem->sdata.smap->map.map_flags & BPF_F_SLEEPABLE_STORAGE;
 	/* The element needs to be freed outside the raw spinlock because spin
 	 * locks cannot nest inside a raw spin locks and call_rcu_tasks_trace
 	 * grabs a spinklock when the RCU code calls into the scheduler.
+	 * 
+	 * free_local_storage should always be true as long as
+	 * local_storage->list was non-empty.
 	 */
-	if (sleepable) {
+	if (selem->sdata.smap->map.map_flags & BPF_F_SLEEPABLE_STORAGE) {
 		call_rcu_tasks_trace(&selem->rcu, bpf_selem_free_rcu);
 		if (free_local_storage)
 			call_rcu_tasks_trace(&local_storage->rcu,
@@ -190,6 +224,7 @@ static void __bpf_selem_unlink_storage(struct bpf_local_storage_elem *selem)
 			kfree_rcu(local_storage, rcu);
 
 	}
+
 }
 
 void bpf_selem_link_storage_nolock(struct bpf_local_storage *local_storage,
@@ -316,6 +351,7 @@ int bpf_local_storage_alloc(void *owner,
 	INIT_HLIST_HEAD(&storage->list);
 	raw_spin_lock_init(&storage->lock);
 	storage->owner = owner;
+	storage->smap = smap;
 
 	bpf_selem_link_storage_nolock(storage, first_selem);
 	bpf_selem_link_map(smap, first_selem);

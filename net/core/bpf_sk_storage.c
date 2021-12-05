@@ -48,10 +48,7 @@ static int bpf_sk_storage_del(struct sock *sk, struct bpf_map *map)
 /* Called by __sk_destruct() & bpf_sk_storage_clone() */
 void bpf_sk_storage_free(struct sock *sk)
 {
-	struct bpf_local_storage_elem *selem;
 	struct bpf_local_storage *sk_storage;
-	bool free_sk_storage = false;
-	struct hlist_node *n;
 
 	rcu_read_lock();
 	sk_storage = rcu_dereference(sk->sk_bpf_storage);
@@ -69,20 +66,8 @@ void bpf_sk_storage_free(struct sock *sk)
 	 * when unlinking elem from the sk_storage->list and
 	 * the map's bucket->list.
 	 */
-	raw_spin_lock_bh(&sk_storage->lock);
-	hlist_for_each_entry_safe(selem, n, &sk_storage->list, snode) {
-		/* Always unlink from map before unlinking from
-		 * sk_storage.
-		 */
-		bpf_selem_unlink_map(selem);
-		free_sk_storage = bpf_selem_unlink_storage_nolock(sk_storage,
-								  selem, true);
-	}
-	raw_spin_unlock_bh(&sk_storage->lock);
-	rcu_read_unlock();
-
-	if (free_sk_storage)
-		kfree_rcu(sk_storage, rcu);
+	 bpf_selem_unlink_storage_list(sk_storage, false);
+	 rcu_read_unlock();
 }
 
 static void bpf_sk_storage_map_free(struct bpf_map *map)

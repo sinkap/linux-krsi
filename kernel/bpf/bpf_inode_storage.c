@@ -60,7 +60,6 @@ void bpf_inode_storage_free(struct inode *inode)
 	struct bpf_local_storage *local_storage;
 	bool free_inode_storage = false;
 	struct bpf_storage_blob *bsb;
-	struct hlist_node *n;
 
 	bsb = bpf_inode(inode);
 	if (!bsb)
@@ -83,24 +82,8 @@ void bpf_inode_storage_free(struct inode *inode)
 	 * when unlinking elem from the local_storage->list and
 	 * the map's bucket->list.
 	 */
-	raw_spin_lock_bh(&local_storage->lock);
-	hlist_for_each_entry_safe(selem, n, &local_storage->list, snode) {
-		/* Always unlink from map before unlinking from
-		 * local_storage.
-		 */
-		bpf_selem_unlink_map(selem);
-		free_inode_storage = bpf_selem_unlink_storage_nolock(
-			local_storage, selem, false);
-	}
-	raw_spin_unlock_bh(&local_storage->lock);
+	bpf_selem_unlink_storage_list(local_storage, false);
 	rcu_read_unlock();
-
-	/* free_inoode_storage should always be true as long as
-	 * local_storage->list was non-empty.
-	 */
-	if (free_inode_storage)
-		call_rcu_tasks_trace(&local_storage->rcu,
-				     bpf_local_storage_free_rcu);
 }
 
 static void *bpf_fd_inode_storage_lookup_elem(struct bpf_map *map, void *key)

@@ -71,14 +71,9 @@ task_storage_lookup(struct task_struct *task, struct bpf_map *map,
 
 void bpf_task_storage_free(struct task_struct *task)
 {
-	struct bpf_local_storage_elem *selem;
 	struct bpf_local_storage *local_storage;
-	bool free_task_storage = false;
-	struct hlist_node *n;
-	unsigned long flags;
 
 	rcu_read_lock();
-
 	local_storage =
 		rcu_dereference_check(task->bpf_storage, bpf_rcu_lock_held());
 	if (!local_storage) {
@@ -96,24 +91,9 @@ void bpf_task_storage_free(struct task_struct *task)
 	 * the map's bucket->list.
 	 */
 	bpf_task_storage_lock();
-	raw_spin_lock_irqsave(&local_storage->lock, flags);
-	hlist_for_each_entry_safe(selem, n, &local_storage->list, snode) {
-		/* Always unlink from map before unlinking from
-		 * local_storage.
-		 */
-		bpf_selem_unlink_map(selem);
-		free_task_storage = bpf_selem_unlink_storage_nolock(
-			local_storage, selem, false);
-	}
-	raw_spin_unlock_irqrestore(&local_storage->lock, flags);
+	bpf_selem_unlink_storage_list(local_storage, false);
 	bpf_task_storage_unlock();
 	rcu_read_unlock();
-
-	/* free_task_storage should always be true as long as
-	 * local_storage->list was non-empty.
-	 */
-	if (free_task_storage)
-		kfree_rcu(local_storage, rcu);
 }
 
 static void *bpf_pid_task_storage_lookup_elem(struct bpf_map *map, void *key)

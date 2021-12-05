@@ -144,6 +144,9 @@ bool bpf_selem_unlink_storage_nolock(struct bpf_local_storage *local_storage,
 				     struct bpf_local_storage_elem *selem,
 				     bool uncharge_omem);
 
+void bpf_selem_unlink_storage_list(struct bpf_local_storage *local_storage,
+				   bool uncharge_omem);
+
 void bpf_selem_unlink(struct bpf_local_storage_elem *selem);
 
 void bpf_selem_link_map(struct bpf_local_storage_map *smap,
