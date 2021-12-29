@@ -25,6 +25,11 @@ TRACE_EVENT(bpf_trace_printk,
 	TP_printk("%s", __get_str(bpf_string))
 );
 
+/* Prototypes for kernel functions exposed to tracing and LSM
+ * programs
+ */
+ssize_t bpf_getxattr(struct dentry *dentry, struct inode *inode,
+		     const char *name, void *value, int size);
 #endif /* _TRACE_BPF_TRACE_H */
 
 #undef TRACE_INCLUDE_PATH
