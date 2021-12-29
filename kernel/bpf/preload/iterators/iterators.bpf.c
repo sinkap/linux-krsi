@@ -2,112 +2,142 @@
 /* Copyright (c) 2020 Facebook */
 #include <linux/bpf.h>
 #include <bpf/bpf_helpers.h>
+#include <sys/types.h>
+#include <bpf/bpf_tracing.h>
 #include <bpf/bpf_core_read.h>
+ #include <errno.h>
+
+
+#define BPF_SECURITY 1
+#define XATTR_SECURITY 2
+
+ struct local_storage {
+	int domain;
+};
+
+#define SECURITY_XATTR_NAME "security.domain"
+#define XATTR_SETTER_DOMAIN "xset"
+#define BPF_SECURITY_DOMAIN "bpf"
+
+struct {
+	__uint(type, BPF_MAP_TYPE_TASK_STORAGE);
+	__uint(map_flags, BPF_F_NO_PREALLOC);
+	__type(key, int);
+	__type(value, struct local_storage);
+} task_storage_map SEC(".maps");
 
 #pragma clang attribute push (__attribute__((preserve_access_index)), apply_to = record)
-struct seq_file;
-struct bpf_iter_meta {
-	struct seq_file *seq;
-	__u64 session_id;
-	__u64 seq_num;
+
+struct user_namespace;
+struct vfsmount {
+	struct user_namespace *mnt_userns;
 };
 
-struct bpf_map {
-	__u32 id;
-	char name[16];
-	__u32 max_entries;
+struct path {
+	struct vfsmount *mnt;
+	struct dentry *dentry;
+};
+struct file {
+	struct path f_path;
 };
 
-struct bpf_iter__bpf_map {
-	struct bpf_iter_meta *meta;
-	struct bpf_map *map;
-};
-
-struct btf_type {
-	__u32 name_off;
-};
-
-struct btf_header {
-	__u32   str_len;
-};
-
-struct btf {
-	const char *strings;
-	struct btf_type **types;
-	struct btf_header hdr;
-};
-
-struct bpf_prog_aux {
-	__u32 id;
-	char name[16];
-	const char *attach_func_name;
-	struct bpf_prog *dst_prog;
-	struct bpf_func_info *func_info;
-	struct btf *btf;
+struct linux_binprm {
+	struct file *file;
 };
 
 struct bpf_prog {
-	struct bpf_prog_aux *aux;
+	enum bpf_prog_type type;
 };
 
-struct bpf_iter__bpf_prog {
-	struct bpf_iter_meta *meta;
-	struct bpf_prog *prog;
-};
 #pragma clang attribute pop
 
-static const char *get_name(struct btf *btf, long btf_id, const char *fallback)
+int enabled = 1;
+
+SEC("lsm/task_alloc")
+int BPF_PROG(s_task_alloc, struct task_struct *task, unsigned long clone_flags) 
 {
-	struct btf_type **types, *t;
-	unsigned int name_off;
-	const char *str;
+	struct local_storage *storage, *new_storage;
 
-	if (!btf)
-		return fallback;
-	str = btf->strings;
-	types = btf->types;
-	bpf_probe_read_kernel(&t, sizeof(t), types + btf_id);
-	name_off = BPF_CORE_READ(t, name_off);
-	if (name_off >= btf->hdr.str_len)
-		return fallback;
-	return str + name_off;
-}
+	storage = bpf_task_storage_get(&task_storage_map,
+				       bpf_get_current_task_btf(), 0, 0);
 
-SEC("iter/bpf_map")
-int dump_bpf_map(struct bpf_iter__bpf_map *ctx)
-{
-	struct seq_file *seq = ctx->meta->seq;
-	__u64 seq_num = ctx->meta->seq_num;
-	struct bpf_map *map = ctx->map;
-
-	if (!map)
+	if (!storage)
 		return 0;
 
-	if (seq_num == 0)
-		BPF_SEQ_PRINTF(seq, "  id name             max_entries\n");
+	if (!storage->domain)
+		return 0;
 
-	BPF_SEQ_PRINTF(seq, "%4u %-16s%6d\n", map->id, map->name, map->max_entries);
+	new_storage = bpf_task_storage_get(&task_storage_map, task, 0, 0);
+	if (!new_storage)
+		return 0;
+
 	return 0;
 }
 
-SEC("iter/bpf_prog")
-int dump_bpf_prog(struct bpf_iter__bpf_prog *ctx)
+SEC("lsm.s/inode_setxattr")
+int BPF_PROG(s_xattr, struct user_namespace *mnt_userns,
+	 struct dentry *dentry, const char *name, const void *value,
+	 size_t size, int flags)
 {
-	struct seq_file *seq = ctx->meta->seq;
-	__u64 seq_num = ctx->meta->seq_num;
-	struct bpf_prog *prog = ctx->prog;
-	struct bpf_prog_aux *aux;
+	struct local_storage *storage;
 
-	if (!prog)
-		return 0;
+	storage = bpf_task_storage_get(&task_storage_map,
+				       bpf_get_current_task_btf(), 0, 0);
 
-	aux = prog->aux;
-	if (seq_num == 0)
-		BPF_SEQ_PRINTF(seq, "  id name             attached\n");
+	if (!storage || storage->domain != XATTR_SECURITY)
+		goto err;
 
-	BPF_SEQ_PRINTF(seq, "%4u %-16s %s %s\n", aux->id,
-		       get_name(aux->btf, aux->func_info[0].type_id, aux->name),
-		       aux->attach_func_name, aux->dst_prog->aux->name);
 	return 0;
+err:
+	bpf_printk("would have been denied upon enforcement");
+	return enabled ? -EPERM : 0;
 }
+
+SEC("lsm.s/bpf_prog")
+int BPF_PROG(s_bpf, struct bpf_prog *prog)
+{
+	struct local_storage *storage;
+
+	storage = bpf_task_storage_get(&task_storage_map,
+				       bpf_get_current_task_btf(), 0, 0);
+
+	if (!storage || storage->domain != BPF_SECURITY)
+		goto err;
+
+	return 0;
+err:
+	bpf_printk("would have been denied upon enforcement");
+	return enabled ? -EPERM : 0;
+}
+
+SEC("lsm.s/bprm_committed_creds")
+void BPF_PROG(bprm_exec, struct linux_binprm *bprm)
+{
+	int xattr_sz;
+	struct local_storage *storage;
+	char dir_xattr_value[256];
+
+	xattr_sz = bpf_getxattr(bprm->file->f_path.mnt->mnt_userns,
+				bprm->file->f_path.dentry, SECURITY_XATTR_NAME,
+				dir_xattr_value, 256);
+
+	if (xattr_sz  <= 0)
+		return;
+
+	storage = bpf_task_storage_get(&task_storage_map,
+					 bpf_get_current_task_btf(), 0,
+					 BPF_LOCAL_STORAGE_GET_F_CREATE);
+	if (!storage) 
+		return;
+
+	/* This is not one of the files contained by borglet */
+	if (bpf_strncmp(dir_xattr_value, sizeof(XATTR_SETTER_DOMAIN), XATTR_SETTER_DOMAIN))
+		storage->domain = XATTR_SECURITY;
+
+	/* This is not one of the files contained by borglet */
+	if (bpf_strncmp(dir_xattr_value, sizeof(BPF_SECURITY_DOMAIN),
+			BPF_SECURITY_DOMAIN))
+		storage->domain = BPF_SECURITY;
+}
+
 char LICENSE[] SEC("license") = "GPL";

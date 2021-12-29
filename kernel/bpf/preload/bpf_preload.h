@@ -12,5 +12,5 @@ struct bpf_preload_ops {
 	struct module *owner;
 };
 extern struct bpf_preload_ops *bpf_preload_ops;
-#define BPF_PRELOAD_LINKS 2
+#define BPF_PRELOAD_LINKS 4
 #endif
