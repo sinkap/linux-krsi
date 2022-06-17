@@ -28,6 +28,9 @@
 #include <linux/security.h>
 #include <linux/init.h>
 #include <linux/rculist.h>
+#include <linux/static_call.h>
+#include <linux/lsm_static_call.h>
+#include <linux/jump_label.h>
 
 /**
  * union security_list_options - Linux Security Module hook function list
@@ -1657,21 +1660,51 @@ union security_list_options {
 	#define LSM_HOOK(RET, DEFAULT, NAME, ...) RET (*NAME)(__VA_ARGS__);
 	#include "lsm_hook_defs.h"
 	#undef LSM_HOOK
+	void *generic_func;
 };
 
-struct security_hook_heads {
-	#define LSM_HOOK(RET, DEFAULT, NAME, ...) struct hlist_head NAME;
-	#include "lsm_hook_defs.h"
+/*
+ * Necessary information about a static
+ * slot to call __static_call_update
+ *
+ * @key: static call key as defined by STATIC_CALL_KEY
+ * @trampoline: static call trampoline as defined by STATIC_CALL_TRAMP
+ * @hl: The security_hook_list as initialized by the owning LSM.
+ * @enabled_key: Enabled when the slot has an LSM hook.
+ */
+struct security_hook_slot {
+	struct static_call_key *key;
+	void *trampoline;
+	struct security_hook_list *hl;
+	struct static_key *enabled_key;
+};
+
+/*
+ * Table of the static calls for each LSM hook.
+ * Once the LSMs are initialized, their callbacks will be copied to these
+ * tables such that the slots are filled backwards (from last to first).
+ * This way, we can jump directly to the first used slot, and execute
+ * all of them after. This essentially makes the entry point
+ * dynamic to adapt the number of slot to the number of callbacks.
+ */
+struct security_static_slots {
+	#define LSM_HOOK(RET, DEFAULT, NAME, ...) \
+		struct security_hook_slot NAME[SECURITY_STATIC_SLOT_COUNT];
+	#include <linux/lsm_hook_defs.h>
 	#undef LSM_HOOK
 } __randomize_layout;
 
 /*
  * Security module hook list structure.
  * For use with generic list macros for common operations.
+ *
+ * struct security_hook_list - Contents of a cacheable, mappable object.
+ * @slot: The security_hook_slot that's assigned at load time to this hook.
+ * @hook: The callback for the hook.
+ * @lsm: The name of the lsm that owns this hook.
  */
 struct security_hook_list {
-	struct hlist_node		list;
-	struct hlist_head		*head;
+	struct security_hook_slot	*slots;
 	union security_list_options	hook;
 	const char			*lsm;
 } __randomize_layout;
@@ -1701,10 +1734,12 @@ struct lsm_blob_sizes {
  * care of the common case and reduces the amount of
  * text involved.
  */
-#define LSM_HOOK_INIT(HEAD, HOOK) \
-	{ .head = &security_hook_heads.HEAD, .hook = { .HEAD = HOOK } }
+#define LSM_HOOK_INIT(NAME, CALLBACK)		\
+	{					\
+		.slots = security_hook_slots.NAME, 	\
+		.hook = { .NAME = CALLBACK }	\
+	}
 
-extern struct security_hook_heads security_hook_heads;
 extern char *lsm_names;
 
 extern void security_add_hooks(struct security_hook_list *hooks, int count,
@@ -1756,10 +1791,21 @@ extern struct lsm_info __start_early_lsm_info[], __end_early_lsm_info[];
 static inline void security_delete_hooks(struct security_hook_list *hooks,
 						int count)
 {
-	int i;
+	struct security_hook_slot *slots;
+	int i, j;
 
-	for (i = 0; i < count; i++)
-		hlist_del_rcu(&hooks[i].list);
+	for (i = 0; i < count; i++) {
+		slots = hooks[i].slots;
+		for (j = 0; j < SECURITY_STATIC_SLOT_COUNT; j++) {
+			if (slots[j].hl != &hooks[i])
+				continue;
+
+			static_key_disable(slots[j].enabled_key);
+			__static_call_update(slots[j].key, slots[j].trampoline,
+					     NULL);
+			slots[j].hl = NULL;
+		}
+	}
 }
 #endif /* CONFIG_SECURITY_SELINUX_DISABLE */
 
@@ -1771,5 +1817,6 @@ static inline void security_delete_hooks(struct security_hook_list *hooks,
 #endif /* CONFIG_SECURITY_WRITABLE_HOOKS */
 
 extern int lsm_inode_alloc(struct inode *inode);
+extern struct security_static_slots security_hook_slots __ro_after_init;
 
 #endif /* ! __LINUX_LSM_HOOKS_H */
