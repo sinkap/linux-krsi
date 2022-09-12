@@ -85,6 +85,9 @@ extern bool use_loader;
 extern bool legacy_libbpf;
 extern struct btf *base_btf;
 extern struct hashmap *refs_table;
+extern bool sign_progs;
+extern const char *private_key_path;
+extern const char *cert_path;
 
 void __printf(1, 2) p_err(const char *fmt, ...);
 void __printf(1, 2) p_info(const char *fmt, ...);
@@ -170,7 +173,9 @@ int prog_parse_fds(int *argc, char ***argv, int **fds);
 int map_parse_fd(int *argc, char ***argv);
 int map_parse_fds(int *argc, char ***argv, int **fds);
 int map_parse_fd_and_info(int *argc, char ***argv, void *info, __u32 *info_len);
-
+__s64 bpf_data_sign(const char *private_key_path, const char *x509_cert_path,
+		    const void *module, size_t module_size, void *sig_buf,
+		    size_t max_sig_len);
 struct bpf_prog_linfo;
 #ifdef HAVE_LIBBFD_SUPPORT
 void disasm_print_insn(unsigned char *image, ssize_t len, int opcodes,

@@ -61,8 +61,10 @@ struct bpf_load_and_run_opts {
 	struct bpf_loader_ctx *ctx;
 	const void *data;
 	const void *insns;
+	const void *signature;
 	__u32 data_sz;
 	__u32 insns_sz;
+	__u32 signature_size;
 	const char *errstr;
 };
 
@@ -338,7 +340,11 @@ static inline int bpf_load_and_run(struct bpf_load_and_run_opts *opts)
 	attr.log_size = opts->ctx->log_size;
 	attr.log_buf = opts->ctx->log_buf;
 	attr.prog_flags = BPF_F_SLEEPABLE;
+	attr.signature = (long)opts->signature;
+	attr.signature_size = opts->signature_size;
+
 	err = prog_fd = skel_sys_bpf(BPF_PROG_LOAD, &attr, prog_load_attr_sz);
+
 	if (prog_fd < 0) {
 		opts->errstr = "failed to load loader prog";
 		set_err;

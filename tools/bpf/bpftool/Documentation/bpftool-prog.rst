@@ -245,6 +245,11 @@ OPTIONS
 		  and loading the programs (see **bpftool prog tracelog** as
 		  a way to dump those messages).
 
+	-S <signing_key.pem> <signing_key.x509>
+		  Generate a PCKS#7 signature blob in the skeleton for the loader
+		  programs using the supplied signing key and x509 certificate.
+		  Currently only supported with **-L**\ \|\ **--use-loader** option.
+
 EXAMPLES
 ========
 **# bpftool prog show**

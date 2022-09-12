@@ -34,6 +34,9 @@ bool use_loader;
 bool legacy_libbpf;
 struct btf *base_btf;
 struct hashmap *refs_table;
+bool sign_progs;
+const char *private_key_path;
+const char *cert_path;
 
 static void __noreturn clean_and_exit(int i)
 {
@@ -426,6 +429,7 @@ int main(int argc, char **argv)
 		{ "nomount",	no_argument,	NULL,	'n' },
 		{ "debug",	no_argument,	NULL,	'd' },
 		{ "use-loader",	no_argument,	NULL,	'L' },
+		{ "sign",	required_argument, NULL, 'S'},
 		{ "base-btf",	required_argument, NULL, 'B' },
 		{ "legacy",	no_argument,	NULL,	'l' },
 		{ 0 }
@@ -453,7 +457,7 @@ int main(int argc, char **argv)
 	bin_name = argv[0];
 
 	opterr = 0;
-	while ((opt = getopt_long(argc, argv, "VhpjfLmndB:l",
+	while ((opt = getopt_long(argc, argv, "VhpjfLmndS:B:l",
 				  options, NULL)) >= 0) {
 		switch (opt) {
 		case 'V':
@@ -499,6 +503,12 @@ int main(int argc, char **argv)
 			break;
 		case 'L':
 			use_loader = true;
+			break;
+		case 'S':
+			sign_progs = true;
+			private_key_path = optarg;
+			cert_path = argv[optind];
+			optind++;
 			break;
 		case 'l':
 			legacy_libbpf = true;

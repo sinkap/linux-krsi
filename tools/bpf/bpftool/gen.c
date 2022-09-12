@@ -660,7 +660,9 @@ static int gen_trace(struct bpf_object *obj, const char *obj_name, const char *h
 {
 	DECLARE_LIBBPF_OPTS(gen_loader_opts, opts);
 	struct bpf_map *map;
+	char sig_buf[4096];
 	char ident[256];
+	__s64 sig_len = 0;
 	int err = 0;
 
 	err = bpf_object__gen_loader(obj, &opts);
@@ -682,6 +684,23 @@ static int gen_trace(struct bpf_object *obj, const char *obj_name, const char *h
 		};							    \n\
 		", obj_name);
 
+	if (sign_progs) {
+		if (!use_loader) {
+			p_err("-L must be specified for signing support");
+			return -EINVAL;
+		}
+
+		if (private_key_path == NULL || cert_path == NULL) {
+			p_err("invalid private key or x509 cert, not signing the program");
+			return -EINVAL;
+		}
+
+		sig_len = bpf_data_sign(private_key_path, cert_path, opts.insns,
+					opts.insns_sz, sig_buf, 4096);
+
+		if (sig_len < 0)
+			p_err("failed to create a signature");
+	}
 
 	codegen_attach_detach(obj, obj_name);
 
@@ -745,6 +764,20 @@ static int gen_trace(struct bpf_object *obj, const char *obj_name, const char *h
 		\n\
 		\";							    \n\
 		");
+
+	if (sign_progs && sig_len > 0) {
+		codegen("\
+			\n\
+				opts.signature_size = %d;			    \n\
+				opts.signature = (void *)\"\\			    \n\
+			",
+			sig_len);
+		print_hex(sig_buf, sig_len);
+		codegen("\
+			\n\
+			\";							    \n\
+			");
+	}
 
 	codegen("\
 		\n\
