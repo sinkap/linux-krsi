@@ -2458,12 +2458,13 @@ static bool is_perfmon_prog_type(enum bpf_prog_type prog_type)
 }
 
 /* last field in 'union bpf_attr' used by this command */
-#define	BPF_PROG_LOAD_LAST_FIELD core_relo_rec_size
+#define	BPF_PROG_LOAD_LAST_FIELD signature_size
 
 static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr)
 {
 	enum bpf_prog_type type = attr->prog_type;
 	struct bpf_prog *prog, *dst_prog = NULL;
+	void *signature;
 	struct btf *attach_btf = NULL;
 	int err;
 	char license[128];
@@ -2581,6 +2582,30 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr)
 	prog->orig_prog = NULL;
 	prog->jited = 0;
 
+	if (attr->signature) {
+		signature = kzalloc(attr->signature_size,
+				    GFP_KERNEL_ACCOUNT | GFP_USER);
+		if (signature == NULL)
+			goto free_prog;
+
+		if (copy_from_bpfptr(signature,
+				     make_bpfptr(attr->signature,
+						 uattr.is_kernel),
+				     attr->signature_size) != 0)
+			goto free_prog_sec;
+
+		bpf_dynptr_init(&prog->aux->sig_info.sig_ptr, signature,
+				BPF_DYNPTR_TYPE_LOCAL, 0, attr->signature_size);
+		bpf_dynptr_init(&prog->aux->sig_info.data_ptr, prog->insnsi,
+				BPF_DYNPTR_TYPE_LOCAL, 0,
+				prog->len * sizeof(struct bpf_insn));
+	}
+	prog->aux->is_kernel = uattr.is_kernel;
+
+	err = security_bpf_prog_verify(prog);
+	if (err < 0)
+		goto free_prog_sec;
+
 	atomic64_set(&prog->aux->refcnt, 1);
 	prog->gpl_compatible = is_gpl ? 1 : 0;
 
@@ -2598,10 +2623,6 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr)
 	prog->aux->load_time = ktime_get_boottime_ns();
 	err = bpf_obj_name_cpy(prog->aux->name, attr->prog_name,
 			       sizeof(attr->prog_name));
-	if (err < 0)
-		goto free_prog_sec;
-
-	err = security_bpf_prog_verify(prog);
 	if (err < 0)
 		goto free_prog_sec;
 

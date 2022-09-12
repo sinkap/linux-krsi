@@ -1094,6 +1094,27 @@ struct btf_mod_pair {
 
 struct bpf_kfunc_desc_tab;
 
+/* the implementation of the opaque uapi struct bpf_dynptr */
+struct bpf_dynptr_kern {
+	void *data;
+	/* Size represents the number of usable bytes of dynptr data.
+	 * If for example the offset is at 4 for a local dynptr whose data is
+	 * of type u64, the number of usable bytes is 4.
+	 *
+	 * The upper 8 bits are reserved. It is as follows:
+	 * Bits 0 - 23 = size
+	 * Bits 24 - 30 = dynptr type
+	 * Bit 31 = whether dynptr is read-only
+	 */
+	u32 size;
+	u32 offset;
+} __aligned(8);
+
+struct bpf_sig_info {
+	struct bpf_dynptr_kern data_ptr;
+	struct bpf_dynptr_kern sig_ptr;
+};
+
 struct bpf_prog_aux {
 	atomic64_t refcnt;
 	u32 used_map_cnt;
@@ -1123,6 +1144,8 @@ struct bpf_prog_aux {
 	bool sleepable;
 	bool tail_call_reachable;
 	bool xdp_has_frags;
+	/* If the program was initiated by a BPF program within the kernel */
+	bool is_kernel;
 	/* BTF_KIND_FUNC_PROTO for valid attach_btf_id */
 	const struct btf_type *attach_func_proto;
 	/* function name for valid attach_btf_id */
@@ -1175,6 +1198,7 @@ struct bpf_prog_aux {
 	 */
 	u32 linfo_idx;
 	u32 num_exentries;
+	struct bpf_sig_info sig_info;
 	struct exception_table_entry *extable;
 	union {
 		struct work_struct work;
@@ -2660,22 +2684,6 @@ bool btf_id_set_contains(const struct btf_id_set *set, u32 id);
 int bpf_bprintf_prepare(char *fmt, u32 fmt_size, const u64 *raw_args,
 			u32 **bin_buf, u32 num_args);
 void bpf_bprintf_cleanup(void);
-
-/* the implementation of the opaque uapi struct bpf_dynptr */
-struct bpf_dynptr_kern {
-	void *data;
-	/* Size represents the number of usable bytes of dynptr data.
-	 * If for example the offset is at 4 for a local dynptr whose data is
-	 * of type u64, the number of usable bytes is 4.
-	 *
-	 * The upper 8 bits are reserved. It is as follows:
-	 * Bits 0 - 23 = size
-	 * Bits 24 - 30 = dynptr type
-	 * Bit 31 = whether dynptr is read-only
-	 */
-	u32 size;
-	u32 offset;
-} __aligned(8);
 
 enum bpf_dynptr_type {
 	BPF_DYNPTR_TYPE_INVALID,
