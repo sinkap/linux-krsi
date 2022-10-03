@@ -1982,6 +1982,7 @@ extern int security_bpf_prog(struct bpf_prog *prog);
 extern int security_bpf_map_alloc(struct bpf_map *map);
 extern void security_bpf_map_free(struct bpf_map *map);
 extern int security_bpf_prog_alloc(struct bpf_prog_aux *aux);
+extern int security_bpf_prog_verify(struct bpf_prog *prog);
 extern void security_bpf_prog_free(struct bpf_prog_aux *aux);
 #else
 static inline int security_bpf(int cmd, union bpf_attr *attr,

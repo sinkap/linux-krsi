@@ -1542,6 +1542,11 @@
  * @bpf_map_alloc_security:
  *	Initialize the security field inside bpf map.
  *
+ * @bpf_prog_verify:
+ *	Do a check before the BPF program is verified. At this point,
+ *	the instruction buffer of the BPF program is not modified by the
+ *	the verifier and signature verification can be done here.
+ *
  * @bpf_map_free_security:
  *	Clean up the security information stored inside bpf map.
  *

@@ -2601,6 +2601,10 @@ static int bpf_prog_load(union bpf_attr *attr, bpfptr_t uattr)
 	if (err < 0)
 		goto free_prog_sec;
 
+	err = security_bpf_prog_verify(prog);
+	if (err < 0)
+		goto free_prog_sec;
+
 	/* run eBPF verifier */
 	err = bpf_check(&prog, attr, uattr);
 	if (err < 0)

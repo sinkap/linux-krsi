@@ -2607,6 +2607,10 @@ int security_bpf_prog_alloc(struct bpf_prog_aux *aux)
 {
 	return call_int_hook(bpf_prog_alloc_security, 0, aux);
 }
+int security_bpf_prog_verify(struct bpf_prog *prog)
+{
+	return call_int_hook(bpf_prog_verify, 0, prog);
+}
 void security_bpf_map_free(struct bpf_map *map)
 {
 	call_void_hook(bpf_map_free_security, map);
