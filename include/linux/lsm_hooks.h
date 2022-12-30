@@ -33,23 +33,23 @@
 #include <linux/jump_label.h>
 
 /*
- * Static slots are used in security/security.c to avoid costly
+ * Static calls are used in security/security.c to avoid costly
  * indirect calls by replacing them with static calls.
  * The number of static calls for each LSM hook is fixed.
  */
-#define SECURITY_STATIC_SLOT_COUNT 12
+#define MAX_LSM_HOOKS 12
 
 #define SECURITY_HOOK_ENABLED_KEY(HOOK, IDX) security_enabled_key_##HOOK##_##IDX
 
 /*
  * Identifier for the LSM static calls.
  * HOOK is an LSM hook as defined in linux/lsm_hookdefs.h
- * IDX is the index of the slot. 0 <= NUM < SECURITY_STATIC_SLOT_COUNT
+ * IDX is the index of the static call. 0 <= NUM < MAX_LSM_HOOKS
  */
-#define SECURITY_STATIC_SLOT(HOOK, IDX) security_static_slot_##HOOK##_##IDX
+#define LSM_STATIC_CALL(HOOK, IDX) lsm_static_call_##HOOK##_##IDX
 
 /*
- * Call the macro M for each LSM hook slot.
+ * Call the macro M for each LSM hook.
  * M should take as first argument the index and then
  * the same __VA_ARGS__
  * Essentially, this will expand to:
@@ -59,10 +59,9 @@
  *	...
  * Note that no trailing semicolon is placed so M should be defined
  * accordingly.
- * This adapts to a change to SECURITY_STATIC_SLOT_COUNT.
+ * This adapts to a change to MAX_LSM_HOOKS.
  */
-#define SECURITY_FOREACH_STATIC_SLOT(M, ...) \
-	UNROLL(SECURITY_STATIC_SLOT_COUNT, M, __VA_ARGS__)
+#define LSM_UNROLL(M, ...) UNROLL(MAX_LSM_HOOKS, M, __VA_ARGS__)
 
 /**
  * union security_list_options - Linux Security Module hook function list
@@ -1696,15 +1695,12 @@ union security_list_options {
 };
 
 /*
- * Necessary information about a static
- * slot to call __static_call_update
- *
  * @key: static call key as defined by STATIC_CALL_KEY
  * @trampoline: static call trampoline as defined by STATIC_CALL_TRAMP
  * @hl: The security_hook_list as initialized by the owning LSM.
- * @enabled_key: Enabled when the slot has an LSM hook.
+ * @enabled_key: Enabled when the static call has an LSM hook associated.
  */
-struct security_hook_slot {
+struct lsm_static_call {
 	struct static_call_key *key;
 	void *trampoline;
 	struct security_hook_list *hl;
@@ -1714,14 +1710,14 @@ struct security_hook_slot {
 /*
  * Table of the static calls for each LSM hook.
  * Once the LSMs are initialized, their callbacks will be copied to these
- * tables such that the slots are filled backwards (from last to first).
- * This way, we can jump directly to the first used slot, and execute
+ * tables such that the calls are filled backwards (from last to first).
+ * This way, we can jump directly to the first used static call, and execute
  * all of them after. This essentially makes the entry point
- * dynamic to adapt the number of slot to the number of callbacks.
+ * dynamic to adapt the number of static calls to the number of callbacks.
  */
-struct security_static_slots {
+struct lsm_static_calls_table {
 	#define LSM_HOOK(RET, DEFAULT, NAME, ...) \
-		struct security_hook_slot NAME[SECURITY_STATIC_SLOT_COUNT];
+		struct lsm_static_call NAME[MAX_LSM_HOOKS];
 	#include <linux/lsm_hook_defs.h>
 	#undef LSM_HOOK
 } __randomize_layout;
@@ -1731,14 +1727,14 @@ struct security_static_slots {
  * For use with generic list macros for common operations.
  *
  * struct security_hook_list - Contents of a cacheable, mappable object.
- * @slot: The security_hook_slot that's assigned at load time to this hook.
+ * @scalls: The beginning of the array of static calls assigned to this hook.
  * @hook: The callback for the hook.
  * @lsm: The name of the lsm that owns this hook.
  * @default_state: The state of the LSM hook when initialized. If set to false,
  * the static key guarding the hook will be set to disabled.
  */
 struct security_hook_list {
-	struct security_hook_slot	*slots;
+	struct lsm_static_call	*scalls;
 	union security_list_options	hook;
 	const char			*lsm;
 	bool				default_state;
@@ -1769,18 +1765,18 @@ struct lsm_blob_sizes {
  * care of the common case and reduces the amount of
  * text involved.
  */
-#define LSM_HOOK_INIT(NAME, CALLBACK)		\
-	{					\
-		.slots = security_hook_slots.NAME, 	\
-		.hook = { .NAME = CALLBACK },	\
-		.default_state = true		\
+#define LSM_HOOK_INIT(NAME, CALLBACK)			\
+	{						\
+		.scalls = static_calls_table.NAME, 	\
+		.hook = { .NAME = CALLBACK },		\
+		.default_state = true			\
 	}
 
-#define LSM_HOOK_INIT_DISABLED(NAME, CALLBACK)	\
-	{					\
-		.slots = security_hook_slots.NAME, 	\
-		.hook = { .NAME = CALLBACK },	\
-		.default_state = false		\
+#define LSM_HOOK_INIT_DISABLED(NAME, CALLBACK)		\
+	{						\
+		.scalls = static_calls_table.NAME, 	\
+		.hook = { .NAME = CALLBACK },		\
+		.default_state = false			\
 	}
 
 extern char *lsm_names;
@@ -1834,19 +1830,19 @@ extern struct lsm_info __start_early_lsm_info[], __end_early_lsm_info[];
 static inline void security_delete_hooks(struct security_hook_list *hooks,
 						int count)
 {
-	struct security_hook_slot *slots;
+	struct lsm_static_call *scalls;
 	int i, j;
 
 	for (i = 0; i < count; i++) {
-		slots = hooks[i].slots;
-		for (j = 0; j < SECURITY_STATIC_SLOT_COUNT; j++) {
-			if (slots[j].hl != &hooks[i])
+		scalls = hooks[i].scalls;
+		for (j = 0; j < MAX_LSM_HOOKS; j++) {
+			if (scalls[j].hl != &hooks[i])
 				continue;
 
-			static_key_disable(slots[j].enabled_key);
-			__static_call_update(slots[j].key, slots[j].trampoline,
-					     NULL);
-			slots[j].hl = NULL;
+			static_key_disable(scalls[j].enabled_key);
+			__static_call_update(scalls[j].key,
+					     scalls[j].trampoline, NULL);
+			scalls[j].hl = NULL;
 		}
 	}
 }
@@ -1860,6 +1856,6 @@ static inline void security_delete_hooks(struct security_hook_list *hooks,
 #endif /* CONFIG_SECURITY_WRITABLE_HOOKS */
 
 extern int lsm_inode_alloc(struct inode *inode);
-extern struct security_static_slots security_hook_slots __ro_after_init;
+extern struct lsm_static_calls_table static_calls_table __ro_after_init;
 
 #endif /* ! __LINUX_LSM_HOOKS_H */
