@@ -29,8 +29,40 @@
 #include <linux/init.h>
 #include <linux/rculist.h>
 #include <linux/static_call.h>
-#include <linux/lsm_static_call.h>
+#include <linux/unroll.h>
 #include <linux/jump_label.h>
+
+/*
+ * Static slots are used in security/security.c to avoid costly
+ * indirect calls by replacing them with static calls.
+ * The number of static calls for each LSM hook is fixed.
+ */
+#define SECURITY_STATIC_SLOT_COUNT 12
+
+#define SECURITY_HOOK_ENABLED_KEY(HOOK, IDX) security_enabled_key_##HOOK##_##IDX
+
+/*
+ * Identifier for the LSM static calls.
+ * HOOK is an LSM hook as defined in linux/lsm_hookdefs.h
+ * IDX is the index of the slot. 0 <= NUM < SECURITY_STATIC_SLOT_COUNT
+ */
+#define SECURITY_STATIC_SLOT(HOOK, IDX) security_static_slot_##HOOK##_##IDX
+
+/*
+ * Call the macro M for each LSM hook slot.
+ * M should take as first argument the index and then
+ * the same __VA_ARGS__
+ * Essentially, this will expand to:
+ *	M(0, ...)
+ *	M(1, ...)
+ *	M(2, ...)
+ *	...
+ * Note that no trailing semicolon is placed so M should be defined
+ * accordingly.
+ * This adapts to a change to SECURITY_STATIC_SLOT_COUNT.
+ */
+#define SECURITY_FOREACH_STATIC_SLOT(M, ...) \
+	UNROLL(SECURITY_STATIC_SLOT_COUNT, M, __VA_ARGS__)
 
 /**
  * union security_list_options - Linux Security Module hook function list

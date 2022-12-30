@@ -30,7 +30,6 @@
 #include <linux/msg.h>
 #include <net/flow.h>
 #include <linux/static_call.h>
-#include <linux/lsm_static_call.h>
 #include <linux/jump_label.h>
 
 #define MAX_LSM_EVM_XATTR	2
