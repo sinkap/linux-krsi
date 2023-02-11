@@ -1124,12 +1124,29 @@ spectre_v2_parse_user_cmdline(void)
 	return SPECTRE_V2_USER_CMD_AUTO;
 }
 
-static inline bool spectre_v2_in_ibrs_mode(enum spectre_v2_mitigation mode)
+static inline bool spectre_v2_in_eibrs_mode(enum spectre_v2_mitigation mode)
 {
-	return mode == SPECTRE_V2_IBRS ||
-	       mode == SPECTRE_V2_EIBRS ||
+	return mode == SPECTRE_V2_EIBRS ||
 	       mode == SPECTRE_V2_EIBRS_RETPOLINE ||
 	       mode == SPECTRE_V2_EIBRS_LFENCE;
+}
+
+/*
+ * In IBRS mode, the spectre_v2 mitigation is enabled only in kernek space with
+ * the IBRS bit being cleared on return to userspace due to performance
+ * overhead.
+ */
+static inline bool spectre_v2_in_ibrs_mode(enum spectre_v2_mitigation mode)
+{
+	return spectre_v2_in_eibrs_mode(mode) || mode == SPECTRE_V2_IBRS;
+}
+
+/*
+ * When spectre_v2 is using eIBRS, it also protects against user-mode attacks.
+ */
+static inline bool spectre_v2_user_needs_stibp(enum spectre_v2_mitigation mode)
+{
+	return !spectre_v2_in_eibrs_mode(mode);
 }
 
 static void __init
@@ -1193,13 +1210,8 @@ spectre_v2_user_select_mitigation(void)
 			"always-on" : "conditional");
 	}
 
-	/*
-	 * If no STIBP, IBRS or enhanced IBRS is enabled, or SMT impossible,
-	 * STIBP is not required.
-	 */
-	if (!boot_cpu_has(X86_FEATURE_STIBP) ||
-	    !smt_possible ||
-	    spectre_v2_in_ibrs_mode(spectre_v2_enabled))
+	if (!boot_cpu_has(X86_FEATURE_STIBP) || !smt_possible ||
+	    !spectre_v2_user_needs_stibp(spectre_v2_enabled))
 		return;
 
 	/*
@@ -2327,7 +2339,7 @@ static ssize_t mmio_stale_data_show_state(char *buf)
 
 static char *stibp_state(void)
 {
-	if (spectre_v2_in_ibrs_mode(spectre_v2_enabled))
+	if (!spectre_v2_user_needs_stibp(spectre_v2_enabled))
 		return "";
 
 	switch (spectre_v2_user_stibp) {
