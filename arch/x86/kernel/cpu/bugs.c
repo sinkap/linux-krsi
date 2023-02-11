@@ -1133,12 +1133,28 @@ spectre_v2_parse_user_cmdline(void)
 	return SPECTRE_V2_USER_CMD_AUTO;
 }
 
-static inline bool spectre_v2_in_ibrs_mode(enum spectre_v2_mitigation mode)
+static inline bool spectre_v2_in_eibrs_mode(enum spectre_v2_mitigation mode)
 {
-	return mode == SPECTRE_V2_IBRS ||
-	       mode == SPECTRE_V2_EIBRS ||
+	return mode == SPECTRE_V2_EIBRS ||
 	       mode == SPECTRE_V2_EIBRS_RETPOLINE ||
 	       mode == SPECTRE_V2_EIBRS_LFENCE;
+}
+
+static inline bool spectre_v2_in_ibrs_mode(enum spectre_v2_mitigation mode)
+{
+	return spectre_v2_in_eibrs_mode(mode) || mode == SPECTRE_V2_IBRS;
+}
+
+static inline bool spectre_v2_user_needs_stibp(enum spectre_v2_mitigation mode)
+{
+	/*
+	 * Enhanced IBRS mode also protects against cross-thread user-to-user
+	 * attacks as the IBRS bit remains always set which implicitly enables
+	 * cross-thread protections.  However, In legacy IBRS mode, the IBRS bit
+	 * is set only in kernel and cleared on return to userspace. This
+	 * disables the implicit cross-thread protections and STIBP is needed.
+	 */
+	return !spectre_v2_in_eibrs_mode(mode);
 }
 
 static void __init
@@ -1202,14 +1218,13 @@ spectre_v2_user_select_mitigation(void)
 			"always-on" : "conditional");
 	}
 
-	/*
-	 * If no STIBP, IBRS or enhanced IBRS is enabled, or SMT impossible,
-	 * STIBP is not required.
-	 */
-	if (!boot_cpu_has(X86_FEATURE_STIBP) ||
-	    !smt_possible ||
-	    spectre_v2_in_ibrs_mode(spectre_v2_enabled))
+	if (!boot_cpu_has(X86_FEATURE_STIBP) || !smt_possible)
 		return;
+
+	if (!spectre_v2_user_needs_stibp(spectre_v2_enabled)) {
+		pr_info("STIBP is enabled implicitly by eIBRS\n");
+		return;
+	}
 
 	/*
 	 * At this point, an STIBP mode other than "off" has been set.
@@ -2340,7 +2355,7 @@ static ssize_t mmio_stale_data_show_state(char *buf)
 
 static char *stibp_state(void)
 {
-	if (spectre_v2_in_ibrs_mode(spectre_v2_enabled))
+	if (!spectre_v2_user_needs_stibp(spectre_v2_enabled))
 		return "";
 
 	switch (spectre_v2_user_stibp) {
