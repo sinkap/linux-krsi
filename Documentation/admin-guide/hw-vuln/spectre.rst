@@ -479,8 +479,17 @@ Spectre variant 2
    On Intel Skylake-era systems the mitigation covers most, but not all,
    cases. See :ref:`[3] <spec_ref3>` for more details.
 
-   On CPUs with hardware mitigation for Spectre variant 2 (e.g. Enhanced
-   IBRS on x86), retpoline is automatically disabled at run time.
+   On CPUs with hardware mitigation for Spectre variant 2 (e.g. IBRS
+   or enhanced IBRS on x86), retpoline is automatically disabled at run time.
+
+   Setting the IBRS bit implicitly enables STIBP which guards against
+   cross-thread branch target injection on SMT systems. On systems with enhanced
+   IBRS, the kernel sets the bit once, which keeps cross-thread protections
+   always enabled, obviating the need for an explicit STIBP. On CPUs with legacy
+   IBRS, the kernel clears the IBRS bit on returning to user-space, thus also
+   disabling the implicit STIBP. Consequently, STIBP needs to be explicitly
+   enabled to guard against cross-thread attacks in userspace.
+
 
    The retpoline mitigation is turned on by default on vulnerable
    CPUs. It can be forced on or off by the administrator
@@ -504,9 +513,12 @@ Spectre variant 2
    For Spectre variant 2 mitigation, individual user programs
    can be compiled with return trampolines for indirect branches.
    This protects them from consuming poisoned entries in the branch
-   target buffer left by malicious software.  Alternatively, the
-   programs can disable their indirect branch speculation via prctl()
-   (See :ref:`Documentation/userspace-api/spec_ctrl.rst <set_spec_ctrl>`).
+   target buffer left by malicious software.
+
+   On legacy IBRS systems where the IBRS bit is cleared and thus disabling the
+   implicit STIBP on returning to userspace, the programs can disable their
+   indirect branch speculation via prctl() (See
+   :ref:`Documentation/userspace-api/spec_ctrl.rst <set_spec_ctrl>`).
    On x86, this will turn on STIBP to guard against attacks from the
    sibling thread when the user program is running, and use IBPB to
    flush the branch target buffer when switching to/from the program.
