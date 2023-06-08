@@ -99,9 +99,9 @@ static __initdata struct lsm_info *exclusive;
  * Define static calls and static keys for each LSM hook.
  */
 
-#define DEFINE_LSM_STATIC_CALL(NUM, NAME, RET, ...)			\
-	DEFINE_STATIC_CALL_NULL(LSM_STATIC_CALL(NAME, NUM),		\
-				*((RET(*)(__VA_ARGS__))NULL));		\
+#define DEFINE_LSM_STATIC_CALL(NUM, NAME, RET, ...)               \
+	DEFINE_STATIC_CALL_NULL(LSM_STATIC_CALL(NAME, NUM),       \
+				*((RET(*)(__VA_ARGS__))NULL));    \
 	DEFINE_STATIC_KEY_FALSE(SECURITY_HOOK_ACTIVE_KEY(NAME, NUM));
 
 #define LSM_HOOK(RET, DEFAULT, NAME, ...)				\
@@ -109,6 +109,9 @@ static __initdata struct lsm_info *exclusive;
 #include <linux/lsm_hook_defs.h>
 #undef LSM_HOOK
 #undef DEFINE_LSM_STATIC_CALL
+
+#define security_hook_active(n, h) \
+	static_branch_maybe(CONFIG_SECURITY_HOOK_LIKELY, &SECURITY_HOOK_ACTIVE_KEY(h, n))
 
 /*
  * Initialise a table of static calls for each LSM hook.
@@ -816,7 +819,7 @@ static int lsm_superblock_alloc(struct super_block *sb)
  */
 #define __CALL_STATIC_VOID(NUM, HOOK, ...)				     \
 do {									     \
-	if (static_branch_unlikely(&SECURITY_HOOK_ACTIVE_KEY(HOOK, NUM))) {    \
+	if (security_hook_active(NUM, HOOK)) {    			     \
 		static_call(LSM_STATIC_CALL(HOOK, NUM))(__VA_ARGS__);	     \
 	}								     \
 } while (0);
@@ -828,7 +831,7 @@ do {									     \
 
 #define __CALL_STATIC_INT(NUM, R, HOOK, LABEL, ...)			     \
 do {									     \
-	if (static_branch_unlikely(&SECURITY_HOOK_ACTIVE_KEY(HOOK, NUM))) {  \
+	if (security_hook_active(NUM, HOOK)) {    \
 		R = static_call(LSM_STATIC_CALL(HOOK, NUM))(__VA_ARGS__);    \
 		if (R != 0)						     \
 			goto LABEL;					     \
