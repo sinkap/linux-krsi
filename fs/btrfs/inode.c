@@ -1494,7 +1494,10 @@ static noinline int cow_file_range(struct btrfs_inode *inode,
 	while (num_bytes > 0) {
 		struct btrfs_ordered_extent *ordered;
 
-		cur_alloc_size = num_bytes;
+		if (btrfs_is_zoned(fs_info))
+			cur_alloc_size = min_t(u64, num_bytes, fs_info->max_extent_size);
+		else
+			cur_alloc_size = num_bytes;
 		ret = btrfs_reserve_extent(root, cur_alloc_size, cur_alloc_size,
 					   min_alloc_size, 0, alloc_hint,
 					   &ins, 1, 1);

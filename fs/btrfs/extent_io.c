@@ -371,12 +371,17 @@ noinline_for_stack bool find_lock_delalloc_range(struct inode *inode,
 				    struct page *locked_page, u64 *start,
 				    u64 *end)
 {
-	struct btrfs_fs_info *fs_info = btrfs_sb(inode->i_sb);
 	struct extent_io_tree *tree = &BTRFS_I(inode)->io_tree;
 	const u64 orig_start = *start;
 	const u64 orig_end = *end;
-	/* The sanity tests may not set a valid fs_info. */
-	u64 max_bytes = fs_info ? fs_info->max_extent_size : BTRFS_MAX_EXTENT_SIZE;
+	/*
+	 * We don't use fs_info->max_extent_size here. The delalloc range will
+	 * not directly corresponds to the size of an extent. The allocation
+	 * size will be capped by either cow_file_range() (only for zoned) or
+	 * run_delalloc_compressed(). We can give large enough size to collect
+	 * delalloc pages.
+	 */
+	u64 max_bytes = BTRFS_MAX_EXTENT_SIZE;
 	u64 delalloc_start;
 	u64 delalloc_end;
 	bool found;

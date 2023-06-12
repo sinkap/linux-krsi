@@ -4452,6 +4452,9 @@ int btrfs_reserve_extent(struct btrfs_root *root, u64 ram_bytes,
 	bool for_treelog = (root->root_key.objectid == BTRFS_TREE_LOG_OBJECTID);
 	bool for_data_reloc = (btrfs_is_data_reloc_root(root) && is_data);
 
+	if (btrfs_is_zoned(fs_info))
+		ASSERT(num_bytes <= fs_info->max_extent_size);
+
 	flags = get_alloc_profile_by_root(root, is_data);
 again:
 	WARN_ON(num_bytes < fs_info->sectorsize);
