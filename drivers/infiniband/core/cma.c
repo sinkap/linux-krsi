@@ -2477,6 +2477,7 @@ static int cma_iw_handler(struct iw_cm_id *iw_id, struct iw_cm_event *iw_event)
 	struct sockaddr *laddr = (struct sockaddr *)&iw_event->local_addr;
 	struct sockaddr *raddr = (struct sockaddr *)&iw_event->remote_addr;
 
+	cma_id_get(id_priv);
 	mutex_lock(&id_priv->handler_mutex);
 	if (READ_ONCE(id_priv->state) != RDMA_CM_CONNECT)
 		goto out;
@@ -2524,12 +2525,14 @@ static int cma_iw_handler(struct iw_cm_id *iw_id, struct iw_cm_event *iw_event)
 	if (ret) {
 		/* Destroy the CM ID by returning a non-zero value. */
 		id_priv->cm_id.iw = NULL;
+		cma_id_put(id_priv);
 		destroy_id_handler_unlock(id_priv);
 		return ret;
 	}
 
 out:
 	mutex_unlock(&id_priv->handler_mutex);
+	cma_id_put(id_priv);
 	return ret;
 }
 
