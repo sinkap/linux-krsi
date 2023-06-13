@@ -22,6 +22,7 @@
 #include <linux/screen_info.h>
 #include <linux/kernel.h>
 #include <linux/percpu.h>
+#include <linux/reboot.h>
 #include <linux/cpu.h>
 #include <linux/of.h>
 #include <linux/of_fdt.h>
@@ -522,19 +523,30 @@ void cpu_reset(void)
 
 void machine_restart(char * cmd)
 {
-	platform_restart();
+	local_irq_disable();
+	smp_send_stop();
+	do_kernel_restart(cmd);
+	pr_err("Reboot failed -- System halted\n");
+	while (1)
+		cpu_relax();
 }
 
 void machine_halt(void)
 {
-	platform_halt();
-	while (1);
+	local_irq_disable();
+	smp_send_stop();
+	do_kernel_power_off();
+	while (1)
+		cpu_relax();
 }
 
 void machine_power_off(void)
 {
-	platform_power_off();
-	while (1);
+	local_irq_disable();
+	smp_send_stop();
+	do_kernel_power_off();
+	while (1)
+		cpu_relax();
 }
 #ifdef CONFIG_PROC_FS
 
@@ -574,6 +586,12 @@ c_show(struct seq_file *f, void *slot)
 # if XCHAL_HAVE_OCD
 		     "ocd "
 # endif
+#if XCHAL_HAVE_TRAX
+		     "trax "
+#endif
+#if XCHAL_NUM_PERF_COUNTERS
+		     "perf "
+#endif
 #endif
 #if XCHAL_HAVE_DENSITY
 	    	     "density "
@@ -623,11 +641,13 @@ c_show(struct seq_file *f, void *slot)
 	seq_printf(f,"physical aregs\t: %d\n"
 		     "misc regs\t: %d\n"
 		     "ibreak\t\t: %d\n"
-		     "dbreak\t\t: %d\n",
+		     "dbreak\t\t: %d\n"
+		     "perf counters\t: %d\n",
 		     XCHAL_NUM_AREGS,
 		     XCHAL_NUM_MISC_REGS,
 		     XCHAL_NUM_IBREAK,
-		     XCHAL_NUM_DBREAK);
+		     XCHAL_NUM_DBREAK,
+		     XCHAL_NUM_PERF_COUNTERS);
 
 
 	/* Interrupt. */
