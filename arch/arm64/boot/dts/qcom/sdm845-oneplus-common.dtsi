@@ -480,7 +480,7 @@
 	};
 };
 
-&pmi8998_rradc {
+&pmi8998_charger {
 	status = "okay";
 };
 
