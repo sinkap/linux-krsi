@@ -725,7 +725,6 @@ struct vm_area_struct *lock_vma_under_rcu(struct mm_struct *mm,
 
 #else /* CONFIG_PER_VMA_LOCK */
 
-static inline void vma_init_lock(struct vm_area_struct *vma) {}
 static inline bool vma_start_read(struct vm_area_struct *vma)
 		{ return false; }
 static inline void vma_end_read(struct vm_area_struct *vma) {}
@@ -1223,16 +1222,6 @@ enum compound_dtor_id {
 };
 extern compound_page_dtor * const compound_page_dtors[NR_COMPOUND_DTORS];
 
-static inline void set_compound_page_dtor(struct page *page,
-		enum compound_dtor_id compound_dtor)
-{
-	struct folio *folio = (struct folio *)page;
-
-	VM_BUG_ON_PAGE(compound_dtor >= NR_COMPOUND_DTORS, page);
-	VM_BUG_ON_PAGE(!PageHead(page), page);
-	folio->_folio_dtor = compound_dtor;
-}
-
 static inline void folio_set_compound_dtor(struct folio *folio,
 		enum compound_dtor_id compound_dtor)
 {
@@ -1241,16 +1230,6 @@ static inline void folio_set_compound_dtor(struct folio *folio,
 }
 
 void destroy_large_folio(struct folio *folio);
-
-static inline void set_compound_order(struct page *page, unsigned int order)
-{
-	struct folio *folio = (struct folio *)page;
-
-	folio->_folio_order = order;
-#ifdef CONFIG_64BIT
-	folio->_folio_nr_pages = 1U << order;
-#endif
-}
 
 /* Returns the number of bytes in this potentially compound page. */
 static inline unsigned long page_size(struct page *page)
@@ -2302,10 +2281,6 @@ static inline void zap_vma_pages(struct vm_area_struct *vma)
 	zap_page_range_single(vma, vma->vm_start,
 			      vma->vm_end - vma->vm_start, NULL);
 }
-void unmap_vmas(struct mmu_gather *tlb, struct maple_tree *mt,
-		struct vm_area_struct *start_vma, unsigned long start,
-		unsigned long end, bool mm_wr_locked);
-
 struct mmu_notifier_range;
 
 void free_pgd_range(struct mmu_gather *tlb, unsigned long addr,
@@ -2827,14 +2802,25 @@ static inline void pgtable_pte_page_dtor(struct page *page)
 	dec_lruvec_page_state(page, NR_PAGETABLE);
 }
 
-#define pte_offset_map_lock(mm, pmd, address, ptlp)	\
-({							\
-	spinlock_t *__ptl = pte_lockptr(mm, pmd);	\
-	pte_t *__pte = pte_offset_map(pmd, address);	\
-	*(ptlp) = __ptl;				\
-	spin_lock(__ptl);				\
-	__pte;						\
-})
+pte_t *__pte_offset_map(pmd_t *pmd, unsigned long addr, pmd_t *pmdvalp);
+static inline pte_t *pte_offset_map(pmd_t *pmd, unsigned long addr)
+{
+	return __pte_offset_map(pmd, addr, NULL);
+}
+
+pte_t *__pte_offset_map_lock(struct mm_struct *mm, pmd_t *pmd,
+			unsigned long addr, spinlock_t **ptlp);
+static inline pte_t *pte_offset_map_lock(struct mm_struct *mm, pmd_t *pmd,
+			unsigned long addr, spinlock_t **ptlp)
+{
+	pte_t *pte;
+
+	__cond_lock(*ptlp, pte = __pte_offset_map_lock(mm, pmd, addr, ptlp));
+	return pte;
+}
+
+pte_t *pte_offset_map_nolock(struct mm_struct *mm, pmd_t *pmd,
+			unsigned long addr, spinlock_t **ptlp);
 
 #define pte_unmap_unlock(pte, ptl)	do {		\
 	spin_unlock(ptl);				\
