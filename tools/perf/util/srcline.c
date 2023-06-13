@@ -23,6 +23,8 @@
 
 bool srcline_full_filename;
 
+char *srcline__unknown = (char *)"??:0";
+
 static const char *dso__name(struct dso *dso)
 {
 	const char *dso_name;
@@ -804,10 +806,15 @@ out:
 	return NULL;
 }
 
-void free_srcline(char *srcline)
+void zfree_srcline(char **srcline)
 {
-	if (srcline && strcmp(srcline, SRCLINE_UNKNOWN) != 0)
-		free(srcline);
+	if (*srcline == NULL)
+		return;
+
+	if (*srcline != SRCLINE_UNKNOWN)
+		free(*srcline);
+
+	*srcline = NULL;
 }
 
 char *get_srcline(struct dso *dso, u64 addr, struct symbol *sym,
@@ -880,7 +887,7 @@ void srcline__tree_delete(struct rb_root_cached *tree)
 		pos = rb_entry(next, struct srcline_node, rb_node);
 		next = rb_next(&pos->rb_node);
 		rb_erase_cached(&pos->rb_node, tree);
-		free_srcline(pos->srcline);
+		zfree_srcline(&pos->srcline);
 		zfree(&pos);
 	}
 }
@@ -903,7 +910,7 @@ void inline_node__delete(struct inline_node *node)
 
 	list_for_each_entry_safe(ilist, tmp, &node->val, list) {
 		list_del_init(&ilist->list);
-		free_srcline(ilist->srcline);
+		zfree_srcline(&ilist->srcline);
 		/* only the inlined symbols are owned by the list */
 		if (ilist->symbol && ilist->symbol->inlined)
 			symbol__delete(ilist->symbol);
