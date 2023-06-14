@@ -96,8 +96,8 @@ struct mlxsw_sp_rif_subport {
 struct mlxsw_sp_rif_ipip_lb {
 	struct mlxsw_sp_rif common;
 	struct mlxsw_sp_rif_ipip_lb_config lb_config;
-	u16 ul_vr_id; /* Reserved for Spectrum-2. */
-	u16 ul_rif_id; /* Reserved for Spectrum. */
+	u16 ul_vr_id;	/* Spectrum-1. */
+	u16 ul_rif_id;	/* Spectrum-2+. */
 };
 
 struct mlxsw_sp_rif_params_ipip_lb {
@@ -748,10 +748,11 @@ static bool mlxsw_sp_vr_is_used(const struct mlxsw_sp_vr *vr)
 
 static struct mlxsw_sp_vr *mlxsw_sp_vr_find_unused(struct mlxsw_sp *mlxsw_sp)
 {
+	int max_vrs = MLXSW_CORE_RES_GET(mlxsw_sp->core, MAX_VRS);
 	struct mlxsw_sp_vr *vr;
 	int i;
 
-	for (i = 0; i < MLXSW_CORE_RES_GET(mlxsw_sp->core, MAX_VRS); i++) {
+	for (i = 0; i < max_vrs; i++) {
 		vr = &mlxsw_sp->router->vrs[i];
 		if (!mlxsw_sp_vr_is_used(vr))
 			return vr;
@@ -792,12 +793,13 @@ static u32 mlxsw_sp_fix_tb_id(u32 tb_id)
 static struct mlxsw_sp_vr *mlxsw_sp_vr_find(struct mlxsw_sp *mlxsw_sp,
 					    u32 tb_id)
 {
+	int max_vrs = MLXSW_CORE_RES_GET(mlxsw_sp->core, MAX_VRS);
 	struct mlxsw_sp_vr *vr;
 	int i;
 
 	tb_id = mlxsw_sp_fix_tb_id(tb_id);
 
-	for (i = 0; i < MLXSW_CORE_RES_GET(mlxsw_sp->core, MAX_VRS); i++) {
+	for (i = 0; i < max_vrs; i++) {
 		vr = &mlxsw_sp->router->vrs[i];
 		if (mlxsw_sp_vr_is_used(vr) && vr->tb_id == tb_id)
 			return vr;
@@ -959,6 +961,7 @@ static int mlxsw_sp_vrs_lpm_tree_replace(struct mlxsw_sp *mlxsw_sp,
 					 struct mlxsw_sp_fib *fib,
 					 struct mlxsw_sp_lpm_tree *new_tree)
 {
+	int max_vrs = MLXSW_CORE_RES_GET(mlxsw_sp->core, MAX_VRS);
 	enum mlxsw_sp_l3proto proto = fib->proto;
 	struct mlxsw_sp_lpm_tree *old_tree;
 	u8 old_id, new_id = new_tree->id;
@@ -968,7 +971,7 @@ static int mlxsw_sp_vrs_lpm_tree_replace(struct mlxsw_sp *mlxsw_sp,
 	old_tree = mlxsw_sp->router->lpm.proto_trees[proto];
 	old_id = old_tree->id;
 
-	for (i = 0; i < MLXSW_CORE_RES_GET(mlxsw_sp->core, MAX_VRS); i++) {
+	for (i = 0; i < max_vrs; i++) {
 		vr = &mlxsw_sp->router->vrs[i];
 		if (!mlxsw_sp_vr_lpm_tree_should_replace(vr, proto, old_id))
 			continue;
@@ -2745,13 +2748,12 @@ static void mlxsw_sp_router_update_priority_work(struct work_struct *work)
 }
 
 static int mlxsw_sp_router_schedule_work(struct net *net,
-					 struct notifier_block *nb,
+					 struct mlxsw_sp_router *router,
+					 struct neighbour *n,
 					 void (*cb)(struct work_struct *))
 {
 	struct mlxsw_sp_netevent_work *net_work;
-	struct mlxsw_sp_router *router;
 
-	router = container_of(nb, struct mlxsw_sp_router, netevent_nb);
 	if (!net_eq(net, mlxsw_sp_net(router->mlxsw_sp)))
 		return NOTIFY_DONE;
 
@@ -2761,19 +2763,31 @@ static int mlxsw_sp_router_schedule_work(struct net *net,
 
 	INIT_WORK(&net_work->work, cb);
 	net_work->mlxsw_sp = router->mlxsw_sp;
+	net_work->n = n;
 	mlxsw_core_schedule_work(&net_work->work);
 	return NOTIFY_DONE;
+}
+
+static bool mlxsw_sp_dev_lower_is_port(struct net_device *dev)
+{
+	struct mlxsw_sp_port *mlxsw_sp_port;
+
+	rcu_read_lock();
+	mlxsw_sp_port = mlxsw_sp_port_dev_lower_find_rcu(dev);
+	rcu_read_unlock();
+	return !!mlxsw_sp_port;
 }
 
 static int mlxsw_sp_router_netevent_event(struct notifier_block *nb,
 					  unsigned long event, void *ptr)
 {
-	struct mlxsw_sp_netevent_work *net_work;
-	struct mlxsw_sp_port *mlxsw_sp_port;
-	struct mlxsw_sp *mlxsw_sp;
+	struct mlxsw_sp_router *router;
 	unsigned long interval;
 	struct neigh_parms *p;
 	struct neighbour *n;
+	struct net *net;
+
+	router = container_of(nb, struct mlxsw_sp_router, netevent_nb);
 
 	switch (event) {
 	case NETEVENT_DELAY_PROBE_TIME_UPDATE:
@@ -2787,51 +2801,37 @@ static int mlxsw_sp_router_netevent_event(struct notifier_block *nb,
 		/* We are in atomic context and can't take RTNL mutex,
 		 * so use RCU variant to walk the device chain.
 		 */
-		mlxsw_sp_port = mlxsw_sp_port_lower_dev_hold(p->dev);
-		if (!mlxsw_sp_port)
+		if (!mlxsw_sp_dev_lower_is_port(p->dev))
 			return NOTIFY_DONE;
 
-		mlxsw_sp = mlxsw_sp_port->mlxsw_sp;
 		interval = jiffies_to_msecs(NEIGH_VAR(p, DELAY_PROBE_TIME));
-		mlxsw_sp->router->neighs_update.interval = interval;
-
-		mlxsw_sp_port_dev_put(mlxsw_sp_port);
+		router->neighs_update.interval = interval;
 		break;
 	case NETEVENT_NEIGH_UPDATE:
 		n = ptr;
+		net = neigh_parms_net(n->parms);
 
 		if (n->tbl->family != AF_INET && n->tbl->family != AF_INET6)
 			return NOTIFY_DONE;
 
-		mlxsw_sp_port = mlxsw_sp_port_lower_dev_hold(n->dev);
-		if (!mlxsw_sp_port)
+		if (!mlxsw_sp_dev_lower_is_port(n->dev))
 			return NOTIFY_DONE;
-
-		net_work = kzalloc(sizeof(*net_work), GFP_ATOMIC);
-		if (!net_work) {
-			mlxsw_sp_port_dev_put(mlxsw_sp_port);
-			return NOTIFY_BAD;
-		}
-
-		INIT_WORK(&net_work->work, mlxsw_sp_router_neigh_event_work);
-		net_work->mlxsw_sp = mlxsw_sp_port->mlxsw_sp;
-		net_work->n = n;
 
 		/* Take a reference to ensure the neighbour won't be
 		 * destructed until we drop the reference in delayed
 		 * work.
 		 */
 		neigh_clone(n);
-		mlxsw_core_schedule_work(&net_work->work);
-		mlxsw_sp_port_dev_put(mlxsw_sp_port);
-		break;
+		return mlxsw_sp_router_schedule_work(net, router, n,
+				mlxsw_sp_router_neigh_event_work);
+
 	case NETEVENT_IPV4_MPATH_HASH_UPDATE:
 	case NETEVENT_IPV6_MPATH_HASH_UPDATE:
-		return mlxsw_sp_router_schedule_work(ptr, nb,
+		return mlxsw_sp_router_schedule_work(ptr, router, NULL,
 				mlxsw_sp_router_mp_hash_event_work);
 
 	case NETEVENT_IPV4_FWD_UPDATE_PRIORITY_UPDATE:
-		return mlxsw_sp_router_schedule_work(ptr, nb,
+		return mlxsw_sp_router_schedule_work(ptr, router, NULL,
 				mlxsw_sp_router_update_priority_work);
 	}
 
@@ -7298,9 +7298,10 @@ static void mlxsw_sp_vr_fib_flush(struct mlxsw_sp *mlxsw_sp,
 
 static void mlxsw_sp_router_fib_flush(struct mlxsw_sp *mlxsw_sp)
 {
+	int max_vrs = MLXSW_CORE_RES_GET(mlxsw_sp->core, MAX_VRS);
 	int i, j;
 
-	for (i = 0; i < MLXSW_CORE_RES_GET(mlxsw_sp->core, MAX_VRS); i++) {
+	for (i = 0; i < max_vrs; i++) {
 		struct mlxsw_sp_vr *vr = &mlxsw_sp->router->vrs[i];
 
 		if (!mlxsw_sp_vr_is_used(vr))
@@ -7699,11 +7700,12 @@ static struct mlxsw_sp_rif *
 mlxsw_sp_rif_find_by_dev(const struct mlxsw_sp *mlxsw_sp,
 			 const struct net_device *dev)
 {
+	int max_rifs = MLXSW_CORE_RES_GET(mlxsw_sp->core, MAX_RIFS);
 	int i;
 
-	for (i = 0; i < MLXSW_CORE_RES_GET(mlxsw_sp->core, MAX_RIFS); i++)
+	for (i = 0; i < max_rifs; i++)
 		if (mlxsw_sp->router->rifs[i] &&
-		    mlxsw_sp->router->rifs[i]->dev == dev)
+		    mlxsw_sp_rif_dev_is(mlxsw_sp->router->rifs[i], dev))
 			return mlxsw_sp->router->rifs[i];
 
 	return NULL;
@@ -8073,9 +8075,20 @@ int mlxsw_sp_rif_dev_ifindex(const struct mlxsw_sp_rif *rif)
 	return rif->dev->ifindex;
 }
 
-const struct net_device *mlxsw_sp_rif_dev(const struct mlxsw_sp_rif *rif)
+static const struct net_device *mlxsw_sp_rif_dev(const struct mlxsw_sp_rif *rif)
 {
 	return rif->dev;
+}
+
+bool mlxsw_sp_rif_has_dev(const struct mlxsw_sp_rif *rif)
+{
+	return !!mlxsw_sp_rif_dev(rif);
+}
+
+bool mlxsw_sp_rif_dev_is(const struct mlxsw_sp_rif *rif,
+			 const struct net_device *dev)
+{
+	return mlxsw_sp_rif_dev(rif) == dev;
 }
 
 static void mlxsw_sp_rif_push_l3_stats(struct mlxsw_sp_rif *rif)
@@ -8874,8 +8887,8 @@ out:
 	return notifier_from_errno(err);
 }
 
-int mlxsw_sp_inetaddr_valid_event(struct notifier_block *unused,
-				  unsigned long event, void *ptr)
+static int mlxsw_sp_inetaddr_valid_event(struct notifier_block *unused,
+					 unsigned long event, void *ptr)
 {
 	struct in_validator_info *ivi = (struct in_validator_info *) ptr;
 	struct net_device *dev = ivi->ivi_dev->dev;
@@ -8957,8 +8970,8 @@ static int mlxsw_sp_inet6addr_event(struct notifier_block *nb,
 	return NOTIFY_DONE;
 }
 
-int mlxsw_sp_inet6addr_valid_event(struct notifier_block *unused,
-				   unsigned long event, void *ptr)
+static int mlxsw_sp_inet6addr_valid_event(struct notifier_block *unused,
+					  unsigned long event, void *ptr)
 {
 	struct in6_validator_info *i6vi = (struct in6_validator_info *) ptr;
 	struct net_device *dev = i6vi->i6vi_dev->dev;
@@ -9724,7 +9737,7 @@ mlxsw_sp1_rif_ipip_lb_configure(struct mlxsw_sp_rif *rif,
 	struct mlxsw_sp_vr *ul_vr;
 	int err;
 
-	ul_vr = mlxsw_sp_vr_get(mlxsw_sp, ul_tb_id, NULL);
+	ul_vr = mlxsw_sp_vr_get(mlxsw_sp, ul_tb_id, extack);
 	if (IS_ERR(ul_vr))
 		return PTR_ERR(ul_vr);
 
@@ -9923,7 +9936,7 @@ mlxsw_sp2_rif_ipip_lb_configure(struct mlxsw_sp_rif *rif,
 	struct mlxsw_sp_rif *ul_rif;
 	int err;
 
-	ul_rif = mlxsw_sp_ul_rif_get(mlxsw_sp, ul_tb_id, NULL);
+	ul_rif = mlxsw_sp_ul_rif_get(mlxsw_sp, ul_tb_id, extack);
 	if (IS_ERR(ul_rif))
 		return PTR_ERR(ul_rif);
 
@@ -10041,11 +10054,12 @@ err_rifs_table_init:
 
 static void mlxsw_sp_rifs_fini(struct mlxsw_sp *mlxsw_sp)
 {
+	int max_rifs = MLXSW_CORE_RES_GET(mlxsw_sp->core, MAX_RIFS);
 	struct devlink *devlink = priv_to_devlink(mlxsw_sp->core);
 	int i;
 
 	WARN_ON_ONCE(atomic_read(&mlxsw_sp->router->rifs_count));
-	for (i = 0; i < MLXSW_CORE_RES_GET(mlxsw_sp->core, MAX_RIFS); i++)
+	for (i = 0; i < max_rifs; i++)
 		WARN_ON_ONCE(mlxsw_sp->router->rifs[i]);
 
 	devl_resource_occ_get_unregister(devlink, MLXSW_SP_RESOURCE_RIFS);
@@ -10504,6 +10518,7 @@ int mlxsw_sp_router_init(struct mlxsw_sp *mlxsw_sp,
 			 struct netlink_ext_ack *extack)
 {
 	struct mlxsw_sp_router *router;
+	struct notifier_block *nb;
 	int err;
 
 	router = kzalloc(sizeof(*mlxsw_sp->router), GFP_KERNEL);
@@ -10582,6 +10597,17 @@ int mlxsw_sp_router_init(struct mlxsw_sp *mlxsw_sp,
 	if (err)
 		goto err_register_inet6addr_notifier;
 
+	router->inetaddr_valid_nb.notifier_call = mlxsw_sp_inetaddr_valid_event;
+	err = register_inetaddr_validator_notifier(&router->inetaddr_valid_nb);
+	if (err)
+		goto err_register_inetaddr_valid_notifier;
+
+	nb = &router->inet6addr_valid_nb;
+	nb->notifier_call = mlxsw_sp_inet6addr_valid_event;
+	err = register_inet6addr_validator_notifier(nb);
+	if (err)
+		goto err_register_inet6addr_valid_notifier;
+
 	mlxsw_sp->router->netevent_nb.notifier_call =
 		mlxsw_sp_router_netevent_event;
 	err = register_netevent_notifier(&mlxsw_sp->router->netevent_nb);
@@ -10621,6 +10647,10 @@ err_register_fib_notifier:
 err_register_nexthop_notifier:
 	unregister_netevent_notifier(&mlxsw_sp->router->netevent_nb);
 err_register_netevent_notifier:
+	unregister_inet6addr_validator_notifier(&router->inet6addr_valid_nb);
+err_register_inet6addr_valid_notifier:
+	unregister_inetaddr_validator_notifier(&router->inetaddr_valid_nb);
+err_register_inetaddr_valid_notifier:
 	unregister_inet6addr_notifier(&router->inet6addr_nb);
 err_register_inet6addr_notifier:
 	unregister_inetaddr_notifier(&router->inetaddr_nb);
@@ -10658,15 +10688,18 @@ err_router_ops_init:
 
 void mlxsw_sp_router_fini(struct mlxsw_sp *mlxsw_sp)
 {
+	struct mlxsw_sp_router *router = mlxsw_sp->router;
+
 	unregister_netdevice_notifier_net(mlxsw_sp_net(mlxsw_sp),
-					  &mlxsw_sp->router->netdevice_nb);
-	unregister_fib_notifier(mlxsw_sp_net(mlxsw_sp),
-				&mlxsw_sp->router->fib_nb);
+					  &router->netdevice_nb);
+	unregister_fib_notifier(mlxsw_sp_net(mlxsw_sp), &router->fib_nb);
 	unregister_nexthop_notifier(mlxsw_sp_net(mlxsw_sp),
-				    &mlxsw_sp->router->nexthop_nb);
-	unregister_netevent_notifier(&mlxsw_sp->router->netevent_nb);
-	unregister_inet6addr_notifier(&mlxsw_sp->router->inet6addr_nb);
-	unregister_inetaddr_notifier(&mlxsw_sp->router->inetaddr_nb);
+				    &router->nexthop_nb);
+	unregister_netevent_notifier(&router->netevent_nb);
+	unregister_inet6addr_validator_notifier(&router->inet6addr_valid_nb);
+	unregister_inetaddr_validator_notifier(&router->inetaddr_valid_nb);
+	unregister_inet6addr_notifier(&router->inet6addr_nb);
+	unregister_inetaddr_notifier(&router->inetaddr_nb);
 	mlxsw_core_flush_owq();
 	mlxsw_sp_mp_hash_fini(mlxsw_sp);
 	mlxsw_sp_neigh_fini(mlxsw_sp);
@@ -10674,12 +10707,12 @@ void mlxsw_sp_router_fini(struct mlxsw_sp *mlxsw_sp)
 	mlxsw_sp_vrs_fini(mlxsw_sp);
 	mlxsw_sp_mr_fini(mlxsw_sp);
 	mlxsw_sp_lpm_fini(mlxsw_sp);
-	rhashtable_destroy(&mlxsw_sp->router->nexthop_group_ht);
-	rhashtable_destroy(&mlxsw_sp->router->nexthop_ht);
+	rhashtable_destroy(&router->nexthop_group_ht);
+	rhashtable_destroy(&router->nexthop_ht);
 	mlxsw_sp_ipips_fini(mlxsw_sp);
 	mlxsw_sp_rifs_fini(mlxsw_sp);
 	__mlxsw_sp_router_fini(mlxsw_sp);
-	cancel_delayed_work_sync(&mlxsw_sp->router->nh_grp_activity_dw);
-	mutex_destroy(&mlxsw_sp->router->lock);
-	kfree(mlxsw_sp->router);
+	cancel_delayed_work_sync(&router->nh_grp_activity_dw);
+	mutex_destroy(&router->lock);
+	kfree(router);
 }
