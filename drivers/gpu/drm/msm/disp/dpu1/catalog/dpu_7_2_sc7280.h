@@ -99,6 +99,11 @@ static const struct dpu_wb_cfg sc7280_wb[] = {
 			VBIF_RT, MDP_SSPP_TOP0_INTR, 4096, 4),
 };
 
+/* NOTE: sc7280 only has one DSC hard slice encoder */
+static const struct dpu_dsc_cfg sc7280_dsc[] = {
+	DSC_BLK_1_2("dce_0_0", DSC_0, 0x80000, 0x29c, BIT(DPU_DSC_NATIVE_42x_EN), dsc_sblk_0),
+};
+
 static const struct dpu_intf_cfg sc7280_intf[] = {
 	INTF_BLK("intf_0", INTF_0, 0x34000, 0x280, INTF_DP, MSM_DP_CONTROLLER_0, 24, INTF_SC7280_MASK,
 			DPU_IRQ_IDX(MDP_SSPP_TOP0_INTR, 24),
@@ -155,6 +160,8 @@ const struct dpu_mdss_cfg dpu_sc7280_cfg = {
 	.mixer = sc7280_lm,
 	.pingpong_count = ARRAY_SIZE(sc7280_pp),
 	.pingpong = sc7280_pp,
+	.dsc_count = ARRAY_SIZE(sc7280_dsc),
+	.dsc = sc7280_dsc,
 	.wb_count = ARRAY_SIZE(sc7280_wb),
 	.wb = sc7280_wb,
 	.intf_count = ARRAY_SIZE(sc7280_intf),
